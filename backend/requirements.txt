@@ -1,0 +1,8 @@
+flask
+flask-cors
+tensorflow
+numpy
+scikit-learn
+pandas
+xlrd
+openpyxl
