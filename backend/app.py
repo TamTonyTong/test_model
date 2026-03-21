@@ -23,7 +23,7 @@ import tensorflow as tf
 BACKEND_DIR    = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR    = os.path.dirname(BACKEND_DIR)
 MODEL_PATH     = os.path.join(PROJECT_DIR, "model", "tbrgs_cnn_lstm_site_4057.keras")
-DATASET_PATH   = os.path.join(PROJECT_DIR, "..", "ASM2B", "Dataset", "Scats Data October 2006.xls")
+DATASET_PATH   = os.path.join(PROJECT_DIR, "public", "mapInfo", "Scats Data October 2006.xls")
 TARGET_SITE    = 4057
 LOOKBACK       = 12        # number of 15-min intervals used as input
 SPEED_LIMIT    = 60        # km/h
