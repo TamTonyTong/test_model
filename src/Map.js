@@ -8,7 +8,7 @@ import { yenKShortest } from "./algorithm/yen";
 const API_PREDICT = "http://127.0.0.1:5000/predict";
 
 const MAX_NODES = 150;
-const SAMPLE_FLOWS = [42, 55, 68, 80, 91, 75, 63, 58, 72, 88, 95, 82];
+const SAMPLE_FLOWS = [42, 55, 68, 80, 91, 75, 63, 58, 72, 88, 95, 82]; //sample flows for traffic
 
 // giả định capacity
 // const FLOW_CAPACITY = 1800;
@@ -55,7 +55,7 @@ export default function MapPage() {
       });
   }, []);
 
-  // distance giữa 2 điểm (đơn vị độ, chưa phải km)
+  // distance between 2 points (degrees, not km)
   const dist = (a, b) => {
     const dx = a.lat - b.lat;
     const dy = a.lng - b.lng;
@@ -92,31 +92,31 @@ export default function MapPage() {
     }
   };
 
-  // tính travel time từ flow và distance
+  // calculate travel time from flow and distance
   const computeTravelTime = (flow, distanceKm, intersections = 1) => {
 
-    // giải phương trình bậc 2: a*s^2 + b*s + c = 0
+    // Solve Quadractic Equation: a*s^2 + b*s + c = 0
     const a = -1.4648375;
     const b = 93.75;
     const c = -flow;
 
     const delta = b * b - 4 * a * c;
 
-    if (delta < 0) return 9999; // lỗi
+    if (delta < 0) return 9999; // Error
 
     const sqrtDelta = Math.sqrt(delta);
 
-    // 2 nghiệm
+    // 2 variables
     const s1 = (-b + sqrtDelta) / (2 * a);
     const s2 = (-b - sqrtDelta) / (2 * a);
 
-    // chọn nghiệm hợp lý (speed > 0 và <= 60)
+    // Choose usable variable (speed > 0 and <= 60)
     let speed = Math.max(s1, s2);
 
     if (speed > 60) speed = 60;
     if (speed < 5) speed = 5;
 
-    // tính time
+    // calculate travel time
     const travelTime =
       (distanceKm / speed) * 60 + intersections * 0.5;
 
@@ -165,7 +165,7 @@ export default function MapPage() {
         const d = dist(a, n);
         const distanceKm = d * 111;
 
-        // convert tại đây
+        // convert here
         const travelTime = computeTravelTime(flow, distanceKm, 1);
 
         edges.push({
@@ -185,7 +185,7 @@ export default function MapPage() {
     return { nodes, edges };
   };
 
-  // xài algo
+  // use algorithm
   const handleSolve = async () => {
 
     if (!origin || destinations.length === 0) return;
@@ -199,7 +199,7 @@ export default function MapPage() {
       edges,
       origin,
       destinations[0],
-      2
+      5
     );
 
     if (!resultPaths || resultPaths.length === 0) {
