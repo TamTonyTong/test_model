@@ -19,7 +19,7 @@ class PriorityQueue {
   }
 }
 
-// heuristic: khoảng cách thẳng tới goal
+// heuristic: straight line distance to goal
 function heuristic(a, b) {
   const dx = a.x - b.x;
   const dy = a.y - b.y;
@@ -79,5 +79,5 @@ export function astar(nodes, edges, startId, goalId) {
     }
   }
 
-  return null; // không tìm được đường
+  return null; // can not find path
 }

@@ -1,9 +1,9 @@
 // Yen's Algorithm (Top-K shortest paths)
-// dùng lại astar()
+// reuse astar()
 
 import { astar } from "./Astar";
 
-// helper: tính cost của 1 path
+// helper: calculate path cost
 function pathCost(path, edges) {
   let cost = 0;
 
@@ -18,7 +18,7 @@ function pathCost(path, edges) {
   return cost;
 }
 
-// clone edges và remove edge
+// clone edges and remove edge
 function removeEdge(edges, from, to) {
   return edges.filter(e => !(e.from === from && e.to === to));
 }
@@ -26,10 +26,10 @@ function removeEdge(edges, from, to) {
 // main Yen
 export function yenKShortest(nodes, edges, start, goal, K = 5) {
 
-  const A = []; // kết quả
-  const B = []; // candidate
+  const A = []; // results
+  const B = []; // candidates
 
-  // 1. shortest path đầu tiên
+  // 1. First shortest path 
   const firstPath = astar(nodes, edges, start, goal);
   if (!firstPath) return [];
 
@@ -46,14 +46,14 @@ export function yenKShortest(nodes, edges, start, goal, K = 5) {
 
       let newEdges = [...edges];
 
-      // remove edges trùng prefix
+      // remove edges with same prefix
       for (let p of A) {
         if (p.length > i && rootPath.every((v, idx) => v === p[idx])) {
           newEdges = removeEdge(newEdges, p[i], p[i + 1]);
         }
       }
 
-      // tìm spur path
+      // find spur path
       const spurPath = astar(nodes, newEdges, spurNode, goal);
 
       if (spurPath) {
@@ -71,7 +71,7 @@ export function yenKShortest(nodes, edges, start, goal, K = 5) {
 
     if (B.length === 0) break;
 
-    // sort candidate
+    // sort candidates
     B.sort((a, b) => a.cost - b.cost);
 
     const best = B.shift();
