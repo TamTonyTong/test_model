@@ -42,6 +42,7 @@ export default function MapPage() {
 
             const parsed = results.data.map(row => ({
               id: Number(row["OBJECTID"]),
+              scats:    Number(row["SCATS_SITE"]) || Number(row["NB_SCATS_SITE"]) || Number(row["OBJECTID"]),
               lat: parseFloat(row["Y"]),
               lng: parseFloat(row["X"]),
               location: row["SITE_DESC"]
@@ -158,26 +159,27 @@ export default function MapPage() {
 
     for (let a of sites) {
       // Call flow model once per source node (cached by nodeId).
-      const flow = await getFlow(a.id);
+      const flowA = await getFlow(a.id);
       const neighbors = getNearest(a, 3);
 
       for (let n of neighbors) {
+        const flowN = await getFlow(n.id);
         const d = dist(a, n);
         const distanceKm = d * 111;
 
         // convert here
-        const travelTime = computeTravelTime(flow, distanceKm, 1);
+        // const travelTime = computeTravelTime(flowA, distanceKm, 1);
 
         edges.push({
           from: a.id,
           to: n.id,
-          cost: travelTime
+          cost: computeTravelTime(flowA, distanceKm, 1)
         });
 
         edges.push({
           from: n.id,
           to: a.id,
-          cost: travelTime
+          cost: computeTravelTime(flowN, distanceKm, 1)
         });
       }
     }
@@ -221,38 +223,122 @@ export default function MapPage() {
     <div style={{ height: "100vh", width: "100%" }}>
 
       <div style={{
-        position: "absolute",
-        zIndex: 1000,
-        background: "white",
-        padding: 12,
-        margin: 10,
-        borderRadius: 6
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '15px',
+        padding: '15px',
+        background: '#f9fafb',
+        borderRadius: '8px',
+        marginBottom: '15px'
       }}>
 
-        <div>
+        {/* <div>
           <b>Origin</b>
+          <br></br>
           <select value={origin ?? ""} onChange={e => setOrigin(Number(e.target.value))}>
             <option value="">Select</option>
             {(sites || []).map(s => (
-              <option key={s.id} value={s.id}>{s.id}</option>
+              <option key={s.id} value={s.id}>{s.id} - {s.location}</option>
+            ))}
+          </select>
+        </div> */}
+        
+        <div>
+          <label htmlFor="origin-select" style={{ display: 'block', fontWeight: '600', marginBottom: '6px', color: '#374151' }}>
+          Origin {origin && <span style={{ color: '#10b981' }}>✓</span>}
+          </label>
+          <select 
+            id="origin-select"
+            value={origin ?? ""} 
+            onChange={e => setOrigin(Number(e.target.value))}
+            style={{
+              width: '100%',
+              padding: '10px',
+              border: origin ? '2px solid #10b981' : '1px solid #d1d5db',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontFamily: 'inherit'
+            }}
+          >
+            <option value="">Select Origin</option>
+            {(sites || []).map(s => (
+              <option key={s.id} value={s.id} disabled={s.id === destinations[0]}>
+                {s.id} - {s.location}
+              </option>
             ))}
           </select>
         </div>
 
-        <div>
+        {/* <div>
           <b>Destination</b>
+          <br></br>
           <select value={destinations[0] ?? ""} onChange={e => setDestinations([Number(e.target.value)])}>
             <option value="">Select</option>
             {(sites || []).map(s => (
-              <option key={s.id} value={s.id}>{s.id}</option>
+              <option key={s.id} value={s.id}>{s.id} - {s.location}</option>
+            ))}
+          </select>
+        </div> */}
+        
+        <div>
+          <label htmlFor="dest-select" style={{ display: 'block', fontWeight: '600', marginBottom: '6px', color: '#374151' }}>
+          Destination {destinations[0] && <span style={{ color: '#10b981' }}>✓</span>}
+          </label>
+          <select 
+            id="dest-select"
+            value={destinations[0] ?? ""} 
+            onChange={e => setDestinations([Number(e.target.value)])}
+            style={{
+              width: '100%',
+              padding: '10px',
+              border: destinations[0] ? '2px solid #10b981' : '1px solid #d1d5db',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontFamily: 'inherit'
+            }}
+          >
+            <option value="">Select Destination</option>
+            {(sites || []).map(s => (
+              <option key={s.id} value={s.id} disabled={s.id === origin}>
+                {s.id} - {s.location}
+              </option>
             ))}
           </select>
         </div>
+        
+        {origin && destinations[0] ? (
+          <div style={{ padding: '10px', background: '#ecfdf5', color: '#047857', borderRadius: '4px', marginBottom: '10px', fontSize: '13px' }}>
+          Ready to find routes from {origin} to {destinations[0]}
+          </div>
+        ) : (
+          <div style={{ padding: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', marginBottom: '10px', fontSize: '13px' }}>
+          Please select both Origin and Destination
+          </div>
+        )}
 
-        <button onClick={handleSolve} disabled={loading}>
+        {/* <button onClick={handleSolve} disabled={loading}>
+          {loading ? "Calculating..." : "Find top 5 paths"}
+        </button> */}
+        
+        <button 
+          onClick={handleSolve} 
+          disabled={loading || !origin || !destinations[0]}
+          style={{
+            gridColumn: '1 / -1',
+            padding: '12px 16px',
+            fontSize: '14px',
+            fontWeight: '600',
+            border: 'none',
+            borderRadius: '6px',
+            backgroundColor: loading || !origin || !destinations[0] ? '#d1d5db' : '#0ea5e9',
+            color: 'white',
+            cursor: loading || !origin || !destinations[0] ? 'not-allowed' : 'pointer',
+            transition: 'background-color 0.2s ease',
+            opacity: loading || !origin || !destinations[0] ? 0.7 : 1
+          }}
+        >
           {loading ? "Calculating..." : "Find top 5 paths"}
         </button>
-
       </div>
 
       <MapContainer center={[-37.81, 145.07]} zoom={13} style={{ height: "100%", width: "100%" }}>
