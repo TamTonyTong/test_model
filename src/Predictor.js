@@ -154,7 +154,7 @@ export default function Predictor() {
       <header className="app-header">
         <div className="header-icon">🚦</div>
         <div className="header-text">
-          <h1>TBRGS — Traffic Flow Predictor</h1>
+          <h1>TBRGS - Traffic Flow Predictor</h1>
           <p>CNN-LSTM model · SCATS Site 4057 · Boroondara Network</p>
         </div>
         <div

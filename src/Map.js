@@ -42,7 +42,7 @@ export default function MapPage() {
 
             const parsed = results.data.map(row => ({
               id: Number(row["OBJECTID"]),
-              scats:    Number(row["SCATS_SITE"]) || Number(row["NB_SCATS_SITE"]) || Number(row["OBJECTID"]),
+              scats:    Number(row["SCATS_SITE"]) || "No SCATS Number",
               lat: parseFloat(row["Y"]),
               lng: parseFloat(row["X"]),
               location: row["SITE_DESC"]
@@ -263,7 +263,7 @@ export default function MapPage() {
             <option value="">Select Origin</option>
             {(sites || []).map(s => (
               <option key={s.id} value={s.id} disabled={s.id === destinations[0]}>
-                {s.id} - {s.location}
+                {s.scats} - {s.id} - {s.location}
               </option>
             ))}
           </select>
@@ -300,7 +300,7 @@ export default function MapPage() {
             <option value="">Select Destination</option>
             {(sites || []).map(s => (
               <option key={s.id} value={s.id} disabled={s.id === origin}>
-                {s.id} - {s.location}
+                {s.scats} - {s.id} - {s.location}
               </option>
             ))}
           </select>
