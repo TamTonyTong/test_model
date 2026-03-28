@@ -148,24 +148,6 @@ export default function Predictor() {
   return (
     <div className="app">
 
-      {/* ── Header ── */}
-      <header className="app-header">
-        <div className="header-icon">🚦</div>
-        <div className="header-text">
-          <h1>TBRGS - Traffic Flow Predictor</h1>
-          <p>CNN-LSTM model · SCATS Site 4057 · Boroondara Network</p>
-        </div>
-        <div
-          className="header-badge"
-          style={{ borderColor: backendStatus === 'ok' ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.4)',
-                   color: backendStatus === 'ok' ? '#34d399' : '#f87171' }}
-        >
-          {backendStatus === 'checking' ? '⏳ Connecting…' :
-           backendStatus === 'ok'       ? '✓ Backend Online' :
-                                          '✗ Backend Offline'}
-        </div>
-      </header>
-
       <main className="app-main">
 
         {/* ════════════════════════════════ LEFT COLUMN ════════════════════════════════ */}

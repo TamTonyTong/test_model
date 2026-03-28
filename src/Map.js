@@ -1,32 +1,45 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Papa from "papaparse";
+import {
+  CircleMarker,
+  MapContainer,
+  Pane,
+  Polyline,
+  TileLayer,
+  Tooltip,
+  ZoomControl,
+  useMap
+} from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { yenKShortest } from "./algorithm/yen";
 import { SAMPLE_FLOWS } from "./utils/trafficDefaults";
 import {
   buildRoadBasedNeighborMap,
   dist,
-  getNearest,
-  projectSites
+  getNearest
 } from "./utils/graphUtils";
+import "./styles/Map.css";
 
 const API_PREDICT = "http://127.0.0.1:5000/predict";
 
 const MAX_NODES = 5000;
-const MAP_WIDTH = 1000;
-const MAP_HEIGHT = 620;
-const MAP_PADDING = 40;
+const FLOW_FETCH_CONCURRENCY = 18;
 const PATH_COLORS = ["#ef4444", "#0ea5e9", "#f59e0b", "#22c55e", "#8b5cf6"];
+const DEFAULT_CENTER = [-37.8136, 144.9631];
+const DEFAULT_ZOOM = 12;
 
 // giả định capacity
 // const FLOW_CAPACITY = 1800;
  
 export default function MapPage() {
-
   const [sites, setSites] = useState([]);
   const [origin, setOrigin] = useState(null);
   const [destinations, setDestinations] = useState([]);
   const [paths, setPaths] = useState([]);
   const [loading, setLoading] = useState(false);
+  const mapRef = useRef(null);
+  const flowCacheRef = useRef(new Map());
 
   useEffect(() => {
     fetch("/mapInfo/Traffic_Count_Locations_with_LONG_LAT.csv")
@@ -56,12 +69,10 @@ export default function MapPage() {
       });
   }, []);
 
-  // Get flow (ML)
-  const flowCache = {};
-
   const getFlow = async (nodeId) => {
-
-    if (flowCache[nodeId]) return flowCache[nodeId];
+    if (flowCacheRef.current.has(nodeId)) {
+      return flowCacheRef.current.get(nodeId);
+    }
 
     try {
       const res = await fetch(API_PREDICT, {
@@ -76,25 +87,36 @@ export default function MapPage() {
       });
 
       const data = await res.json();
+      const value = data.predicted_flow_per_hour;
 
-      flowCache[nodeId] = data.predicted_flow_per_hour;
+      flowCacheRef.current.set(nodeId, value);
 
-      return flowCache[nodeId];
+      return value;
 
     } catch {
       return 1000;
     }
   };
 
-  const projectedSites = useMemo(() => {
-    return projectSites(sites, MAP_WIDTH, MAP_HEIGHT, MAP_PADDING);
-  }, [sites]);
+  const prefetchFlows = async (nodeIds) => {
+    const uniqueIds = Array.from(new Set(nodeIds)).filter(id => !flowCacheRef.current.has(id));
 
-  const siteById = useMemo(() => {
-    const m = new Map();
-    for (const s of projectedSites) m.set(s.id, s);
-    return m;
-  }, [projectedSites]);
+    if (uniqueIds.length === 0) return;
+
+    let cursor = 0;
+    const workerCount = Math.min(FLOW_FETCH_CONCURRENCY, uniqueIds.length);
+
+    const workers = Array.from({ length: workerCount }, () => (async () => {
+      while (cursor < uniqueIds.length) {
+        const index = cursor;
+        cursor += 1;
+        const nodeId = uniqueIds[index];
+        await getFlow(nodeId);
+      }
+    })());
+
+    await Promise.all(workers);
+  };
 
   const rawSiteById = useMemo(() => {
     const m = new Map();
@@ -102,15 +124,7 @@ export default function MapPage() {
     return m;
   }, [sites]);
 
-  const pathPolylines = useMemo(() => {
-    return paths
-      .map(path => path.map(id => siteById.get(id)).filter(Boolean))
-      .filter(points => points.length > 1);
-  }, [paths, siteById]);
-
-  const previewEdges = useMemo(() => {
-    if (sites.length === 0) return [];
-
+  const edgesById = useMemo(() => {
     const neighborsById = buildRoadBasedNeighborMap(sites);
     const undirectedEdgeSet = new Set();
 
@@ -130,13 +144,52 @@ export default function MapPage() {
     return Array.from(undirectedEdgeSet)
       .map(edgeKey => {
         const [fromId, toId] = edgeKey.split("-").map(Number);
-        const from = siteById.get(fromId);
-        const to = siteById.get(toId);
+        const from = rawSiteById.get(fromId);
+        const to = rawSiteById.get(toId);
+
         if (!from || !to) return null;
-        return { key: edgeKey, from, to };
+
+        return {
+          key: edgeKey,
+          points: [
+            [from.lat, from.lng],
+            [to.lat, to.lng]
+          ]
+        };
       })
       .filter(Boolean);
-  }, [sites, rawSiteById, siteById]);
+  }, [sites, rawSiteById]);
+
+  const pathPolylines = useMemo(() => {
+    return paths
+      .map(path => path.map(id => rawSiteById.get(id)).filter(Boolean))
+      .map(points => points.map(p => [p.lat, p.lng]))
+      .filter(points => points.length > 1);
+  }, [paths, rawSiteById]);
+
+  const mapBounds = useMemo(() => {
+    if (sites.length === 0) return null;
+
+    return L.latLngBounds(sites.map(site => [site.lat, site.lng]));
+  }, [sites]);
+
+  const selectedPathDuration = useMemo(() => {
+    if (!paths[0] || paths[0].length < 2) return null;
+
+    let total = 0;
+
+    for (let i = 0; i < paths[0].length - 1; i += 1) {
+      const from = rawSiteById.get(paths[0][i]);
+      const to = rawSiteById.get(paths[0][i + 1]);
+
+      if (!from || !to) continue;
+
+      const distanceKm = dist(from, to) * 111;
+      total += computeTravelTime(1000, distanceKm, 1);
+    }
+
+    return total.toFixed(1);
+  }, [paths, rawSiteById]);
 
   // calculate travel time from flow and distance
   const computeTravelTime = (flow, distanceKm, intersections = 1) => {
@@ -180,11 +233,11 @@ export default function MapPage() {
 
     const edges = [];
     const edgeKeySet = new Set();
+    const draftEdges = [];
+    const flowNodeIds = [];
     const neighborsById = buildRoadBasedNeighborMap(sites);
 
     for (let a of sites) {
-      // Call flow model once per source node (cached by nodeId).
-      const flowA = await getFlow(a.id);
       const roadNeighbors = Array.from(neighborsById.get(a.id) || [])
         .map(id => rawSiteById.get(id))
         .filter(Boolean);
@@ -192,34 +245,43 @@ export default function MapPage() {
       const neighbors = roadNeighbors.length > 0 ? roadNeighbors : getNearest(sites, a, 2);
 
       for (let n of neighbors) {
-        const flowN = await getFlow(n.id);
         const d = dist(a, n);
         const distanceKm = d * 111;
 
         const forwardKey = `${a.id}->${n.id}`;
         const backwardKey = `${n.id}->${a.id}`;
 
-        // convert here
-        // const travelTime = computeTravelTime(flowA, distanceKm, 1);
-
         if (!edgeKeySet.has(forwardKey)) {
           edgeKeySet.add(forwardKey);
-          edges.push({
+          draftEdges.push({
             from: a.id,
             to: n.id,
-            cost: computeTravelTime(flowA, distanceKm, 1)
+            distanceKm
           });
+          flowNodeIds.push(a.id);
         }
 
         if (!edgeKeySet.has(backwardKey)) {
           edgeKeySet.add(backwardKey);
-          edges.push({
+          draftEdges.push({
             from: n.id,
             to: a.id,
-            cost: computeTravelTime(flowN, distanceKm, 1)
+            distanceKm
           });
+          flowNodeIds.push(n.id);
         }
       }
+    }
+
+    await prefetchFlows(flowNodeIds);
+
+    for (const edge of draftEdges) {
+      const flow = flowCacheRef.current.get(edge.from) ?? 1000;
+      edges.push({
+        from: edge.from,
+        to: edge.to,
+        cost: computeTravelTime(flow, edge.distanceKm, 1)
+      });
     }
 
     return { nodes, edges };
@@ -266,213 +328,189 @@ export default function MapPage() {
     setDestinations([siteId]);
   };
 
+  const handleResetView = () => {
+    if (!mapRef.current || !mapBounds) return;
+    mapRef.current.fitBounds(mapBounds, { padding: [30, 30] });
+  };
+
+  const ResetBoundsOnData = ({ bounds }) => {
+    const map = useMap();
+
+    useEffect(() => {
+      if (!bounds) return;
+      map.fitBounds(bounds, { padding: [30, 30] });
+    }, [map, bounds]);
+
+    return null;
+  };
+
   return (
-    <div style={{ height: "100vh", width: "100%" }}>
+    <div className="map-page">
+      <section className="map-controls">
+        <div className="map-controls-grid">
+          <div>
+            <label className="map-label" htmlFor="origin-select">
+              Origin {origin && <span className="map-ok">selected</span>}
+            </label>
+            <select
+              className="map-select"
+              id="origin-select"
+              value={origin ?? ""}
+              onChange={e => setOrigin(Number(e.target.value))}
+            >
+              <option value="">Select Origin</option>
+              {(sites || []).map(s => (
+                <option key={s.id} value={s.id} disabled={s.id === destinations[0]}>
+                  {s.scats} - {s.id} - {s.location}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '15px',
-        padding: '15px',
-        background: '#f9fafb',
-        borderRadius: '8px',
-        marginBottom: '15px'
-      }}>
-
-        {/* <div>
-          <b>Origin</b>
-          <br></br>
-          <select value={origin ?? ""} onChange={e => setOrigin(Number(e.target.value))}>
-            <option value="">Select</option>
-            {(sites || []).map(s => (
-              <option key={s.id} value={s.id}>{s.id} - {s.location}</option>
-            ))}
-          </select>
-        </div> */}
-        
-        <div>
-          <label htmlFor="origin-select" style={{ display: 'block', fontWeight: '600', marginBottom: '6px', color: '#374151' }}>
-          Origin {origin && <span style={{ color: '#10b981' }}>✓</span>}
-          </label>
-          <select 
-            id="origin-select"
-            value={origin ?? ""} 
-            onChange={e => setOrigin(Number(e.target.value))}
-            style={{
-              width: '100%',
-              padding: '10px',
-              border: origin ? '2px solid #10b981' : '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontSize: '13px',
-              fontFamily: 'inherit'
-            }}
-          >
-            <option value="">Select Origin</option>
-            {(sites || []).map(s => (
-              <option key={s.id} value={s.id} disabled={s.id === destinations[0]}>
-                {s.scats} - {s.id} - {s.location}
-              </option>
-            ))}
-          </select>
+          <div>
+            <label className="map-label" htmlFor="dest-select">
+              Destination {destinations[0] && <span className="map-ok">selected</span>}
+            </label>
+            <select
+              className="map-select"
+              id="dest-select"
+              value={destinations[0] ?? ""}
+              onChange={e => setDestinations([Number(e.target.value)])}
+            >
+              <option value="">Select Destination</option>
+              {(sites || []).map(s => (
+                <option key={s.id} value={s.id} disabled={s.id === origin}>
+                  {s.scats} - {s.id} - {s.location}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        {/* <div>
-          <b>Destination</b>
-          <br></br>
-          <select value={destinations[0] ?? ""} onChange={e => setDestinations([Number(e.target.value)])}>
-            <option value="">Select</option>
-            {(sites || []).map(s => (
-              <option key={s.id} value={s.id}>{s.id} - {s.location}</option>
-            ))}
-          </select>
-        </div> */}
-        
-        <div>
-          <label htmlFor="dest-select" style={{ display: 'block', fontWeight: '600', marginBottom: '6px', color: '#374151' }}>
-          Destination {destinations[0] && <span style={{ color: '#10b981' }}>✓</span>}
-          </label>
-          <select 
-            id="dest-select"
-            value={destinations[0] ?? ""} 
-            onChange={e => setDestinations([Number(e.target.value)])}
-            style={{
-              width: '100%',
-              padding: '10px',
-              border: destinations[0] ? '2px solid #10b981' : '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontSize: '13px',
-              fontFamily: 'inherit'
-            }}
-          >
-            <option value="">Select Destination</option>
-            {(sites || []).map(s => (
-              <option key={s.id} value={s.id} disabled={s.id === origin}>
-                {s.scats} - {s.id} - {s.location}
-              </option>
-            ))}
-          </select>
-        </div>
-        
-        {origin && destinations[0] ? (
-          <div style={{ padding: '10px', background: '#ecfdf5', color: '#047857', borderRadius: '4px', marginBottom: '10px', fontSize: '13px' }}>
-          Ready to find routes from {origin} to {destinations[0]}
-          </div>
-        ) : (
-          <div style={{ padding: '10px', background: '#fef3c7', color: '#92400e', borderRadius: '4px', marginBottom: '10px', fontSize: '13px' }}>
-          Please select both Origin and Destination
-          </div>
-        )}
+        <div className="map-actions">
+          <p className={`map-status ${origin && destinations[0] ? "ready" : "pending"}`}>
+            {origin && destinations[0]
+              ? `Ready to find routes from ${origin} to ${destinations[0]}`
+              : "Select both origin and destination"}
+          </p>
 
-        {/* <button onClick={handleSolve} disabled={loading}>
-          {loading ? "Calculating..." : "Find top 5 paths"}
-        </button> */}
-        
-        <button 
-          onClick={handleSolve} 
-          disabled={loading || !origin || !destinations[0]}
-          style={{
-            gridColumn: '1 / -1',
-            padding: '12px 16px',
-            fontSize: '14px',
-            fontWeight: '600',
-            border: 'none',
-            borderRadius: '6px',
-            backgroundColor: loading || !origin || !destinations[0] ? '#d1d5db' : '#0ea5e9',
-            color: 'white',
-            cursor: loading || !origin || !destinations[0] ? 'not-allowed' : 'pointer',
-            transition: 'background-color 0.2s ease',
-            opacity: loading || !origin || !destinations[0] ? 0.7 : 1
+          <div className="map-action-buttons">
+            <button
+              className="map-btn map-btn-secondary"
+              onClick={handleResetView}
+              disabled={!mapBounds}
+            >
+              Reset View
+            </button>
+
+            <button
+              className="map-btn map-btn-primary"
+              onClick={handleSolve}
+              disabled={loading || !origin || !destinations[0]}
+            >
+              {loading ? "Calculating..." : "Find Top 2 Paths"}
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section className="map-canvas-wrap">
+        <div className="map-summary">
+          <span>
+            Nodes: <b>{sites.length}</b>
+          </span>
+          <span>
+            Candidate edges: <b>{edgesById.length}</b>
+          </span>
+          <span>
+            Best route (est): <b>{selectedPathDuration ? `${selectedPathDuration} min` : "-"}</b>
+          </span>
+        </div>
+
+        <MapContainer
+          center={DEFAULT_CENTER}
+          zoom={DEFAULT_ZOOM}
+          className="leaflet-map"
+          zoomControl={false}
+          whenReady={(event) => {
+            mapRef.current = event.target;
           }}
         >
-          {loading ? "Calculating..." : "Find top 2 paths"}
-        </button>
-      </div>
+          <ResetBoundsOnData bounds={mapBounds} />
+          <ZoomControl position="bottomright" />
 
-      <div
-        style={{
-          width: "100%",
-          height: "calc(100% - 180px)",
-          minHeight: "520px",
-          borderRadius: "12px",
-          border: "1px solid #d1d5db",
-          overflow: "hidden",
-          background: "linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)"
-        }}
-      >
-        <svg
-          viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
-          style={{ width: "100%", height: "100%", display: "block" }}
-          role="img"
-          aria-label="Traffic network map"
-        >
-          <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="rgba(255,255,255,0.5)" />
+          <TileLayer
+            url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            attribution="&copy; OpenStreetMap contributors &copy; CARTO"
+          />
 
-          {previewEdges.map(edge => (
-            <line
-              key={`edge-${edge.key}`}
-              x1={edge.from.x}
-              y1={edge.from.y}
-              x2={edge.to.x}
-              y2={edge.to.y}
-              stroke="#94a3b8"
-              strokeWidth="1.2"
-              opacity="0.65"
-            />
-          ))}
+          <Pane name="edges" style={{ zIndex: 350 }}>
+            {edgesById.map(edge => (
+              <Polyline
+                key={`edge-${edge.key}`}
+                positions={edge.points}
+                pathOptions={{ color: "#64748b", weight: 1.2, opacity: 0.45 }}
+              />
+            ))}
+          </Pane>
 
-          {pathPolylines.map((points, idx) => (
-            <polyline
-              key={`route-${idx}`}
-              points={points.map(p => `${p.x},${p.y}`).join(" ")}
-              fill="none"
-              stroke={PATH_COLORS[idx % PATH_COLORS.length]}
-              strokeWidth="4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.92"
-            />
-          ))}
+          <Pane name="paths" style={{ zIndex: 500 }}>
+            {pathPolylines.map((points, idx) => (
+              <Polyline
+                key={`route-${idx}`}
+                positions={points}
+                pathOptions={{
+                  color: PATH_COLORS[idx % PATH_COLORS.length],
+                  weight: 6,
+                  opacity: 0.95,
+                  lineCap: "round",
+                  lineJoin: "round"
+                }}
+              />
+            ))}
+          </Pane>
 
-          {projectedSites.map(site => {
-            const isOrigin = site.id === origin;
-            const isDestination = site.id === destinations[0];
-            const radius = isOrigin || isDestination ? 7 : 3;
-            const fill = isOrigin ? "#16a34a" : isDestination ? "#dc2626" : "#334155";
+          <Pane name="nodes" style={{ zIndex: 650 }}>
+            {sites.map(site => {
+              const isOrigin = site.id === origin;
+              const isDestination = site.id === destinations[0];
 
-            return (
-              <g key={site.id}>
-                <circle
-                  cx={site.x}
-                  cy={site.y}
-                  r={radius}
-                  fill={fill}
-                  stroke="white"
-                  strokeWidth={isOrigin || isDestination ? 2 : 1}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => handleNodeClick(site.id)}
+              return (
+                <CircleMarker
+                  key={site.id}
+                  center={[site.lat, site.lng]}
+                  radius={isOrigin || isDestination ? 9 : 4}
+                  pathOptions={{
+                    fillColor: isOrigin ? "#10b981" : isDestination ? "#ef4444" : "#0f172a",
+                    color: "#ffffff",
+                    weight: isOrigin || isDestination ? 2 : 1,
+                    fillOpacity: 0.92
+                  }}
+                  eventHandlers={{
+                    click: () => handleNodeClick(site.id)
+                  }}
                 >
-                  <title>{`${site.id} - ${site.location}`}</title>
-                </circle>
-                {(isOrigin || isDestination) && (
-                  <text
-                    x={site.x + 8}
-                    y={site.y - 8}
-                    fill="#0f172a"
-                    fontSize="12"
-                    fontWeight="700"
-                    paintOrder="stroke"
-                    stroke="#ffffff"
-                    strokeWidth="2"
-                  >
-                    {site.id}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
-      </div>
+                  {(isOrigin || isDestination) && (
+                    <Tooltip direction="top" offset={[0, -8]} permanent>
+                      {isOrigin ? "Origin" : "Destination"}: {site.id}
+                    </Tooltip>
+                  )}
+                  <Tooltip direction="top">
+                    {site.id} - {site.location}
+                  </Tooltip>
+                </CircleMarker>
+              );
+            })}
+          </Pane>
+        </MapContainer>
 
+        <div className="map-legend">
+          <span><i className="dot origin" /> Origin</span>
+          <span><i className="dot destination" /> Destination</span>
+          <span><i className="dot node" /> Node</span>
+          <span><i className="line route" /> Suggested Route</span>
+        </div>
+      </section>
     </div>
   );
 }

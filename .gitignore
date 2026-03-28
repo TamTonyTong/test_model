@@ -24,4 +24,4 @@ yarn-error.log*
 
 *.pdf 
 
-/.venv/*
+/.venv/
