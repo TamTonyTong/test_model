@@ -12,14 +12,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import './styles/App.css';
 import PredictionChart from './components/PredictionChart';
+import { SAMPLE_FLOWS } from './utils/trafficDefaults';
 
 // ── Constants ──────────────────────────────────────────────
 const API = 'http://127.0.0.1:5000';
 const LOOKBACK = 12;
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
-// Example realistic traffic flows for SCATS site 4057 (morning peak-ish)
-const SAMPLE_FLOWS = [42, 55, 68, 80, 91, 75, 63, 58, 72, 88, 95, 82];
 
 // Generate interval labels: 00:00, 00:15, … 23:45
 function makeIntervalLabels() {

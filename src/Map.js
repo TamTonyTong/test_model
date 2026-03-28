@@ -1,28 +1,25 @@
-import React, { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import React, { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
 import { yenKShortest } from "./algorithm/yen";
+import { SAMPLE_FLOWS } from "./utils/trafficDefaults";
+import {
+  buildRoadBasedNeighborMap,
+  dist,
+  getNearest,
+  projectSites
+} from "./utils/graphUtils";
 
 const API_PREDICT = "http://127.0.0.1:5000/predict";
 
-const MAX_NODES = 150;
-const SAMPLE_FLOWS = [42, 55, 68, 80, 91, 75, 63, 58, 72, 88, 95, 82]; //sample flows for traffic
+const MAX_NODES = 5000;
+const MAP_WIDTH = 1000;
+const MAP_HEIGHT = 620;
+const MAP_PADDING = 40;
+const PATH_COLORS = ["#ef4444", "#0ea5e9", "#f59e0b", "#22c55e", "#8b5cf6"];
 
 // giả định capacity
 // const FLOW_CAPACITY = 1800;
  
-const originIcon = new L.Icon({
-  iconUrl: "https://maps.google.com/mapfiles/ms/icons/green-dot.png",
-  iconSize: [32, 32]
-});
-
-const destIcon = new L.Icon({
-  iconUrl: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
-  iconSize: [32, 32]
-});
-
 export default function MapPage() {
 
   const [sites, setSites] = useState([]);
@@ -45,7 +42,10 @@ export default function MapPage() {
               scats:    Number(row["SCATS_SITE"]) || "No SCATS Number",
               lat: parseFloat(row["Y"]),
               lng: parseFloat(row["X"]),
-              location: row["SITE_DESC"]
+              location: row["SITE_DESC"],
+              roadNumber: String(row["ROAD_NBR"] || "").trim(),
+              declaredRoad: String(row["DECLARED_R"] || "").trim(),
+              localRoad: String(row["LOCAL_ROAD"] || "").trim()
             }))
               .filter(x => !isNaN(x.lat) && !isNaN(x.lng))
               .slice(0, MAX_NODES);
@@ -55,13 +55,6 @@ export default function MapPage() {
         });
       });
   }, []);
-
-  // distance between 2 points (degrees, not km)
-  const dist = (a, b) => {
-    const dx = a.lat - b.lat;
-    const dy = a.lng - b.lng;
-    return Math.sqrt(dx * dx + dy * dy);
-  };
 
   // Get flow (ML)
   const flowCache = {};
@@ -92,6 +85,58 @@ export default function MapPage() {
       return 1000;
     }
   };
+
+  const projectedSites = useMemo(() => {
+    return projectSites(sites, MAP_WIDTH, MAP_HEIGHT, MAP_PADDING);
+  }, [sites]);
+
+  const siteById = useMemo(() => {
+    const m = new Map();
+    for (const s of projectedSites) m.set(s.id, s);
+    return m;
+  }, [projectedSites]);
+
+  const rawSiteById = useMemo(() => {
+    const m = new Map();
+    for (const s of sites) m.set(s.id, s);
+    return m;
+  }, [sites]);
+
+  const pathPolylines = useMemo(() => {
+    return paths
+      .map(path => path.map(id => siteById.get(id)).filter(Boolean))
+      .filter(points => points.length > 1);
+  }, [paths, siteById]);
+
+  const previewEdges = useMemo(() => {
+    if (sites.length === 0) return [];
+
+    const neighborsById = buildRoadBasedNeighborMap(sites);
+    const undirectedEdgeSet = new Set();
+
+    for (const a of sites) {
+      const roadNeighbors = Array.from(neighborsById.get(a.id) || [])
+        .map(id => rawSiteById.get(id))
+        .filter(Boolean);
+
+      const neighbors = roadNeighbors.length > 0 ? roadNeighbors : getNearest(sites, a, 2);
+
+      for (const n of neighbors) {
+        const edgeKey = a.id < n.id ? `${a.id}-${n.id}` : `${n.id}-${a.id}`;
+        undirectedEdgeSet.add(edgeKey);
+      }
+    }
+
+    return Array.from(undirectedEdgeSet)
+      .map(edgeKey => {
+        const [fromId, toId] = edgeKey.split("-").map(Number);
+        const from = siteById.get(fromId);
+        const to = siteById.get(toId);
+        if (!from || !to) return null;
+        return { key: edgeKey, from, to };
+      })
+      .filter(Boolean);
+  }, [sites, rawSiteById, siteById]);
 
   // calculate travel time from flow and distance
   const computeTravelTime = (flow, distanceKm, intersections = 1) => {
@@ -124,28 +169,6 @@ export default function MapPage() {
     return travelTime;
   };
 
-  // Nearest Node
-  const getNearest = (a, k = 3) => {
-    let nearest = [];
-
-    sites.forEach(b => {
-      if (a.id === b.id) return;
-
-      const d = dist(a, b);
-
-      if (nearest.length < k) {
-        nearest.push({ node: b, d });
-        nearest.sort((x, y) => x.d - y.d);
-      } else if (d < nearest[nearest.length - 1].d) {
-        nearest.pop();
-        nearest.push({ node: b, d });
-        nearest.sort((x, y) => x.d - y.d);
-      }
-    });
-
-    return nearest.map(n => n.node);
-  };
-
   // Graph
   const buildGraph = async () => {
 
@@ -156,31 +179,46 @@ export default function MapPage() {
     }));
 
     const edges = [];
+    const edgeKeySet = new Set();
+    const neighborsById = buildRoadBasedNeighborMap(sites);
 
     for (let a of sites) {
       // Call flow model once per source node (cached by nodeId).
       const flowA = await getFlow(a.id);
-      const neighbors = getNearest(a, 3);
+      const roadNeighbors = Array.from(neighborsById.get(a.id) || [])
+        .map(id => rawSiteById.get(id))
+        .filter(Boolean);
+
+      const neighbors = roadNeighbors.length > 0 ? roadNeighbors : getNearest(sites, a, 2);
 
       for (let n of neighbors) {
         const flowN = await getFlow(n.id);
         const d = dist(a, n);
         const distanceKm = d * 111;
 
+        const forwardKey = `${a.id}->${n.id}`;
+        const backwardKey = `${n.id}->${a.id}`;
+
         // convert here
         // const travelTime = computeTravelTime(flowA, distanceKm, 1);
 
-        edges.push({
-          from: a.id,
-          to: n.id,
-          cost: computeTravelTime(flowA, distanceKm, 1)
-        });
+        if (!edgeKeySet.has(forwardKey)) {
+          edgeKeySet.add(forwardKey);
+          edges.push({
+            from: a.id,
+            to: n.id,
+            cost: computeTravelTime(flowA, distanceKm, 1)
+          });
+        }
 
-        edges.push({
-          from: n.id,
-          to: a.id,
-          cost: computeTravelTime(flowN, distanceKm, 1)
-        });
+        if (!edgeKeySet.has(backwardKey)) {
+          edgeKeySet.add(backwardKey);
+          edges.push({
+            from: n.id,
+            to: a.id,
+            cost: computeTravelTime(flowN, distanceKm, 1)
+          });
+        }
       }
     }
 
@@ -201,7 +239,7 @@ export default function MapPage() {
       edges,
       origin,
       destinations[0],
-      5
+      2
     );
 
     if (!resultPaths || resultPaths.length === 0) {
@@ -214,9 +252,18 @@ export default function MapPage() {
     setLoading(false);
   };
 
-  const getLatLng = (id) => {
-    const s = sites.find(x => x.id === id);
-    return s ? [s.lat, s.lng] : [0, 0];
+  const handleNodeClick = (siteId) => {
+    if (!origin) {
+      setOrigin(siteId);
+      return;
+    }
+
+    if (origin === siteId) {
+      setOrigin(null);
+      return;
+    }
+
+    setDestinations([siteId]);
   };
 
   return (
@@ -337,37 +384,94 @@ export default function MapPage() {
             opacity: loading || !origin || !destinations[0] ? 0.7 : 1
           }}
         >
-          {loading ? "Calculating..." : "Find top 5 paths"}
+          {loading ? "Calculating..." : "Find top 2 paths"}
         </button>
       </div>
 
-      <MapContainer center={[-37.81, 145.07]} zoom={13} style={{ height: "100%", width: "100%" }}>
+      <div
+        style={{
+          width: "100%",
+          height: "calc(100% - 180px)",
+          minHeight: "520px",
+          borderRadius: "12px",
+          border: "1px solid #d1d5db",
+          overflow: "hidden",
+          background: "linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)"
+        }}
+      >
+        <svg
+          viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`}
+          style={{ width: "100%", height: "100%", display: "block" }}
+          role="img"
+          aria-label="Traffic network map"
+        >
+          <rect x="0" y="0" width={MAP_WIDTH} height={MAP_HEIGHT} fill="rgba(255,255,255,0.5)" />
 
-        <TileLayer
-          attribution="OpenStreetMap"
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+          {previewEdges.map(edge => (
+            <line
+              key={`edge-${edge.key}`}
+              x1={edge.from.x}
+              y1={edge.from.y}
+              x2={edge.to.x}
+              y2={edge.to.y}
+              stroke="#94a3b8"
+              strokeWidth="1.2"
+              opacity="0.65"
+            />
+          ))}
 
-        {(sites || []).map((s, i) => {
+          {pathPolylines.map((points, idx) => (
+            <polyline
+              key={`route-${idx}`}
+              points={points.map(p => `${p.x},${p.y}`).join(" ")}
+              fill="none"
+              stroke={PATH_COLORS[idx % PATH_COLORS.length]}
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.92"
+            />
+          ))}
 
-          let icon = undefined;
-          if (s.id === origin) icon = originIcon;
-          if (destinations.includes(s.id)) icon = destIcon;
+          {projectedSites.map(site => {
+            const isOrigin = site.id === origin;
+            const isDestination = site.id === destinations[0];
+            const radius = isOrigin || isDestination ? 7 : 3;
+            const fill = isOrigin ? "#16a34a" : isDestination ? "#dc2626" : "#334155";
 
-          return (
-            <Marker key={i} position={[s.lat, s.lng]} icon={icon || new L.Icon.Default()}>
-              <Popup>
-                {s.id} <br /> {s.location}
-              </Popup>
-            </Marker>
-          );
-        })}
-
-        {paths.map((p, i) => (
-          <Polyline key={i} positions={p.map(id => getLatLng(id))} color="red" />
-        ))}
-
-      </MapContainer>
+            return (
+              <g key={site.id}>
+                <circle
+                  cx={site.x}
+                  cy={site.y}
+                  r={radius}
+                  fill={fill}
+                  stroke="white"
+                  strokeWidth={isOrigin || isDestination ? 2 : 1}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => handleNodeClick(site.id)}
+                >
+                  <title>{`${site.id} - ${site.location}`}</title>
+                </circle>
+                {(isOrigin || isDestination) && (
+                  <text
+                    x={site.x + 8}
+                    y={site.y - 8}
+                    fill="#0f172a"
+                    fontSize="12"
+                    fontWeight="700"
+                    paintOrder="stroke"
+                    stroke="#ffffff"
+                    strokeWidth="2"
+                  >
+                    {site.id}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
 
     </div>
   );
