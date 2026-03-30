@@ -22,9 +22,9 @@ import tensorflow as tf
 # ──────────────────────────────────────────────
 BACKEND_DIR    = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR    = os.path.dirname(BACKEND_DIR)
-MODEL_PATH     = os.path.join(PROJECT_DIR, "model", "tbrgs_cnn_lstm_site_4057.keras")
-DATASET_PATH   = os.path.join(PROJECT_DIR, "public", "mapInfo", "Scats Data October 2006.xls")
-TARGET_SITE    = 4057
+MODEL_PATH     = os.path.join(PROJECT_DIR, "model", "tbrgs_cnn_lstm_global_best.keras")
+DATASET_PATH   = os.path.join(PROJECT_DIR, "public", "mapInfo", "VSDATA_202602_Summed.csv")
+DEFAULT_SITE_ID = 4057
 LOOKBACK       = 12        # number of 15-min intervals used as input
 SPEED_LIMIT    = 60        # km/h
 INTERSECTION_DELAY = 0.5  # minutes (30 seconds)
@@ -58,31 +58,64 @@ print(f"  Model loaded from: {MODEL_PATH}")
 print(f"  Input shape: {model.input_shape}")
 
 print("Refitting MinMaxScaler from dataset …")
+SITE_SCALERS = {}
+KNOWN_SITE_IDS = set()
 try:
-    # Read the dataset (header on row 2, i.e. index 1)
-    df_raw = pd.read_excel(DATASET_PATH, sheet_name="Data", header=1)
+    df_raw = pd.read_csv(DATASET_PATH)
 
-    # Keep only site 4057
-    site_col = "SCATS Number" if "SCATS Number" in df_raw.columns else df_raw.columns[0]
-    df_site = df_raw[df_raw[site_col] == TARGET_SITE].copy()
+    site_col = next(
+        (
+            c for c in ["NB_SCATS_SITE", "SCATS Number", "SCATS_SITE", "VSDATA_SITE"]
+            if c in df_raw.columns
+        ),
+        None,
+    )
+    if site_col is None:
+        raise ValueError("No supported site id column found in dataset")
 
     # Melt the V00–V95 volume columns into long format
     v_cols = [c for c in df_raw.columns if str(c).startswith("V") and str(c)[1:].isdigit()]
-    df_long = df_site.melt(id_vars=[site_col], value_vars=v_cols,
-                           var_name="interval", value_name="flow")
+    if not v_cols:
+        raise ValueError("No V00-V95 flow columns found in dataset")
+
+    df_long = df_raw.melt(
+        id_vars=[site_col], value_vars=v_cols, var_name="interval", value_name="flow"
+    )
     df_long["flow"] = pd.to_numeric(df_long["flow"], errors="coerce")
+    df_long[site_col] = pd.to_numeric(df_long[site_col], errors="coerce")
     df_long.dropna(subset=["flow"], inplace=True)
+    df_long.dropna(subset=[site_col], inplace=True)
+    df_long = df_long[df_long["flow"] >= 0].copy()
 
     flow_values = df_long["flow"].values.reshape(-1, 1)
-    scaler = MinMaxScaler()
-    scaler.fit(flow_values)
+    if len(flow_values) == 0:
+        raise ValueError("No valid flow rows found after cleaning")
+
+    global_scaler = MinMaxScaler()
+    global_scaler.fit(flow_values)
+
+    # Build site-specific scalers so each site can be normalized similarly to training.
+    for sid, grp in df_long.groupby(site_col):
+        site_flows = grp["flow"].values.reshape(-1, 1)
+        if len(site_flows) == 0:
+            continue
+        site_scaler = MinMaxScaler()
+        site_scaler.fit(site_flows)
+        sid_int = int(sid)
+        SITE_SCALERS[sid_int] = site_scaler
+        KNOWN_SITE_IDS.add(sid_int)
+
+    scaler = global_scaler
     print(f"  Scaler fitted on {len(flow_values)} rows. Range: [{flow_values.min():.1f}, {flow_values.max():.1f}]")
+    print(f"  Built {len(SITE_SCALERS)} site-specific scalers")
     SCALER_READY = True
 except Exception as e:
     print(f"  WARNING: Could not load dataset – {e}")
     print("  Falling back to approximate scaler (0–1800 veh/h)")
     scaler = MinMaxScaler()
     scaler.fit(np.array([[0], [1800]]))
+    SITE_SCALERS = {}
+    KNOWN_SITE_IDS = set()
     SCALER_READY = False
 
 
@@ -95,7 +128,24 @@ def cyclic(val, max_val):
     return math.sin(angle), math.cos(angle)
 
 
-def build_feature_vector(flow_seq, interval_index, day_of_week, is_weekend):
+def parse_bool(value, default=False):
+    """Parse common JSON/string boolean values robustly."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        txt = value.strip().lower()
+        if txt in {"true", "1", "yes", "y", "on"}:
+            return True
+        if txt in {"false", "0", "no", "n", "off"}:
+            return False
+    return default
+
+
+def build_feature_vector(flow_seq, interval_index, day_of_week, is_weekend, flow_scaler):
     """
     Build a (LOOKBACK, n_features) array from raw flow sequence plus context.
     Features per timestep:
@@ -107,7 +157,7 @@ def build_feature_vector(flow_seq, interval_index, day_of_week, is_weekend):
     n_features = 6
     X = np.zeros((LOOKBACK, n_features))
     for i, flow in enumerate(flow_seq):
-        scaled = scaler.transform([[flow]])[0][0]
+        scaled = flow_scaler.transform([[flow]])[0][0]
         # The interval for each step stepping back
         idx = (interval_index - (LOOKBACK - 1 - i)) % 96
         sin_i, cos_i = cyclic(idx, 96)
@@ -160,7 +210,12 @@ def travel_time(distance_km, speed_kmh, num_intersections=1):
 # ──────────────────────────────────────────────
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "model": MODEL_PATH, "scaler_ready": SCALER_READY})
+    return jsonify({
+        "status": "ok",
+        "model": MODEL_PATH,
+        "scaler_ready": SCALER_READY,
+        "known_sites": len(KNOWN_SITE_IDS),
+    })
 
 
 @app.route("/model-info", methods=["GET"])
@@ -168,7 +223,9 @@ def model_info():
     layers = [{"name": l.name, "type": l.__class__.__name__} for l in model.layers]
     return jsonify({
         "model_file": os.path.basename(MODEL_PATH),
-        "site_id": TARGET_SITE,
+        "mode": "global-multi-site",
+        "default_site_id": DEFAULT_SITE_ID,
+        "known_sites": len(KNOWN_SITE_IDS),
         "lookback": LOOKBACK,
         "input_shape": str(model.input_shape),
         "output_shape": str(model.output_shape),
@@ -186,6 +243,7 @@ def predict():
     """
     Request body (JSON):
     {
+            "site_id": 4057,                 // optional but recommended for site-specific scaling
       "flows": [f0, f1, ..., f11],    // last 12 flow readings (veh/15min)
       "interval_index": 32,           // index of the NEXT interval (0–95, one per 15-min slot)
       "day_of_week": 1,               // 0=Monday … 6=Sunday
@@ -202,27 +260,74 @@ def predict():
       "is_congested": bool,
       "travel_time_min": float,
       "road_condition": "Free Flow" | "Moderate" | "Congested",
+      "site_id": int | null,
+      "scaler_scope": "site" | "global",
       "input_flows": [...]
     }
     """
     data = request.get_json(force=True)
 
     flows = data.get("flows")
-    if not flows or len(flows) != LOOKBACK:
+    if not isinstance(flows, list) or len(flows) != LOOKBACK:
         return jsonify({"error": f"'flows' must be a list of {LOOKBACK} values"}), 400
+    try:
+        flows = [float(v) for v in flows]
+    except (TypeError, ValueError):
+        return jsonify({"error": "All values in 'flows' must be numeric"}), 400
 
-    interval_index = int(data.get("interval_index", 0))
-    day_of_week    = int(data.get("day_of_week", 0))
-    is_weekend     = bool(data.get("is_weekend", day_of_week >= 5))
-    distance_km    = float(data.get("distance_km", 1.0))
-    num_ints       = int(data.get("num_intersections", 1))
+    if any(v < 0 for v in flows):
+        return jsonify({"error": "All values in 'flows' must be non-negative"}), 400
 
-    X = build_feature_vector(flows, interval_index, day_of_week, is_weekend)
+    site_raw = data.get("site_id", data.get("scats_site", data.get("NB_SCATS_SITE")))
+    if site_raw is not None:
+        try:
+            site_id = int(site_raw)
+        except (TypeError, ValueError):
+            return jsonify({"error": "'site_id' must be an integer"}), 400
+    else:
+        site_id = None
+
+    try:
+        interval_index = int(data.get("interval_index", 0))
+        day_of_week = int(data.get("day_of_week", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "'interval_index' and 'day_of_week' must be integers"}), 400
+
+    if interval_index < 0 or interval_index > 95:
+        return jsonify({"error": "'interval_index' must be between 0 and 95"}), 400
+    if day_of_week < 0 or day_of_week > 6:
+        return jsonify({"error": "'day_of_week' must be between 0 and 6"}), 400
+
+    is_weekend = parse_bool(data.get("is_weekend"), default=(day_of_week >= 5))
+
+    try:
+        distance_km = float(data.get("distance_km", 1.0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "'distance_km' must be numeric"}), 400
+
+    try:
+        num_ints = int(data.get("num_intersections", 1))
+    except (TypeError, ValueError):
+        return jsonify({"error": "'num_intersections' must be an integer"}), 400
+
+    if distance_km <= 0:
+        return jsonify({"error": "'distance_km' must be > 0"}), 400
+    if num_ints < 0:
+        return jsonify({"error": "'num_intersections' must be >= 0"}), 400
+
+    if site_id is not None and site_id in SITE_SCALERS:
+        flow_scaler = SITE_SCALERS[site_id]
+        scaler_scope = "site"
+    else:
+        flow_scaler = scaler
+        scaler_scope = "global"
+
+    X = build_feature_vector(flows, interval_index, day_of_week, is_weekend, flow_scaler)
     # Model expects (batch, lookback, features)
     X_input = X[np.newaxis, ...]   # shape: (1, 12, 6)
 
     pred_scaled = model.predict(X_input, verbose=0)[0][0]
-    pred_flow_interval = float(scaler.inverse_transform([[pred_scaled]])[0][0])
+    pred_flow_interval = float(flow_scaler.inverse_transform([[pred_scaled]])[0][0])
     pred_flow_interval = max(0.0, pred_flow_interval)
     pred_flow_hour = pred_flow_interval * 4  # 15-min → per hour
 
@@ -244,6 +349,8 @@ def predict():
         "is_congested":                is_congested,
         "travel_time_min":             tt,
         "road_condition":              condition,
+        "site_id":                     site_id,
+        "scaler_scope":                scaler_scope,
         "input_flows":                 flows,
     })
 

@@ -52,7 +52,7 @@ export default function MapPage() {
 
             const parsed = results.data.map(row => ({
               id: Number(row["OBJECTID"]),
-              scats:    Number(row["SCATS_SITE"]) || "No SCATS Number",
+              scats: Number.isFinite(Number(row["SCATS_SITE"])) ? Number(row["SCATS_SITE"]) : null,
               lat: parseFloat(row["Y"]),
               lng: parseFloat(row["X"]),
               location: row["SITE_DESC"],
@@ -74,24 +74,34 @@ export default function MapPage() {
       return flowCacheRef.current.get(nodeId);
     }
 
+    const site = rawSiteById.get(nodeId);
+    const scatsSiteId = Number.isInteger(site?.scats) ? site.scats : undefined;
+
     try {
+      const payload = {
+        flows: SAMPLE_FLOWS.map(v => v + ((scatsSiteId ?? nodeId) % 10) * 5),
+        interval_index: 32,
+        day_of_week: 1,
+        is_weekend: false
+      };
+
+      if (scatsSiteId !== undefined) {
+        payload.site_id = scatsSiteId;
+      }
+
       const res = await fetch(API_PREDICT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          flows: SAMPLE_FLOWS.map(v => v + (nodeId % 10) * 5),
-          interval_index: 32,
-          day_of_week: 1,
-          is_weekend: false
-        })
+        body: JSON.stringify(payload)
       });
 
       const data = await res.json();
-      const value = data.predicted_flow_per_hour;
+      const value = Number(data.predicted_flow_per_hour);
+      const safeValue = Number.isFinite(value) ? value : 1000;
 
-      flowCacheRef.current.set(nodeId, value);
+      flowCacheRef.current.set(nodeId, safeValue);
 
-      return value;
+      return safeValue;
 
     } catch {
       return 1000;
@@ -361,7 +371,7 @@ export default function MapPage() {
               <option value="">Select Origin</option>
               {(sites || []).map(s => (
                 <option key={s.id} value={s.id} disabled={s.id === destinations[0]}>
-                  {s.scats} - {s.id} - {s.location}
+                  {(s.scats ?? "N/A")} - {s.id} - {s.location}
                 </option>
               ))}
             </select>
@@ -380,7 +390,7 @@ export default function MapPage() {
               <option value="">Select Destination</option>
               {(sites || []).map(s => (
                 <option key={s.id} value={s.id} disabled={s.id === origin}>
-                  {s.scats} - {s.id} - {s.location}
+                  {(s.scats ?? "N/A")} - {s.id} - {s.location}
                 </option>
               ))}
             </select>
@@ -496,7 +506,7 @@ export default function MapPage() {
                     </Tooltip>
                   )}
                   <Tooltip direction="top">
-                    {site.id} - {site.location}
+                    {(site.scats ?? "N/A")} - {site.id} - {site.location}
                   </Tooltip>
                 </CircleMarker>
               );
