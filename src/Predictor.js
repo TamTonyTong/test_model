@@ -24,7 +24,7 @@ function makeIntervalLabels() {
   const labels = [];
   for (let h = 0; h < 24; h++) {
     for (let m = 0; m < 60; m += 15) {
-      labels.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+      labels.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
     }
   }
   return labels; // 96 labels
@@ -37,11 +37,27 @@ function conditionClass(condition) {
   return condition.toLowerCase().replace(' ', '-');
 }
 
+// Calculate the next 15-minute interval index from current time (ceiling)
+function getCurrentIntervalIndex() {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+
+  // Round up to next 15-minute interval
+  const roundedMinutes = Math.ceil(totalMinutes / 15) * 15;
+  const totalIntervalsFromMidnight = roundedMinutes / 15;
+
+  // Return index (0-95, wrapping at 24 hours)
+  return totalIntervalsFromMidnight % 96;
+}
+
 // ── Main Component ─────────────────────────────────────────
 export default function Predictor() {
   // Form state
   const [flows, setFlows] = useState(Array(LOOKBACK).fill(''));
-  const [intervalIndex, setIntervalIndex] = useState(32); // default 08:00
+  const [siteId, setSiteId] = useState('4057');
+  const [intervalIndex, setIntervalIndex] = useState(getCurrentIntervalIndex()); // update to current interval
   const [dayOfWeek, setDayOfWeek] = useState(0);          // default Monday
   const [distanceKm, setDistanceKm] = useState(1.0);
   const [numIntersections, setNumIntersections] = useState(1);
@@ -63,8 +79,22 @@ export default function Predictor() {
         return fetch(`${API}/model-info`);
       })
       .then(r => r.json())
-      .then(info => setModelInfo(info))
+      .then(info => {
+        setModelInfo(info);
+        if (info && Number.isInteger(info.default_site_id)) {
+          setSiteId(String(info.default_site_id));
+        }
+      })
       .catch(() => setBackendStatus('error'));
+  }, []);
+
+  // ── Update interval index in real-time (every minute) ──
+  useEffect(() => {
+    setIntervalIndex(getCurrentIntervalIndex());
+    const timer = setInterval(() => {
+      setIntervalIndex(getCurrentIntervalIndex());
+    }, 60000); // Update every 60 seconds (1 minute)
+    return () => clearInterval(timer);
   }, []);
 
   // ── Flow input handler ──
@@ -78,6 +108,7 @@ export default function Predictor() {
 
   // ── Fill with sample data ──
   const loadSample = () => {
+    setSiteId('4057');
     setFlows(SAMPLE_FLOWS.map(String));
     setIntervalIndex(32);
     setDayOfWeek(1); // Tuesday
@@ -94,6 +125,11 @@ export default function Predictor() {
 
   // ── Validation ──
   const validate = () => {
+    const parsedSiteId = Number(siteId);
+    if (!Number.isInteger(parsedSiteId) || parsedSiteId < 0) {
+      return 'Site ID must be a non-negative integer.';
+    }
+
     for (let i = 0; i < LOOKBACK; i++) {
       const v = parseFloat(flows[i]);
       if (isNaN(v) || v < 0) {
@@ -112,6 +148,7 @@ export default function Predictor() {
 
     const isWeekend = dayOfWeek >= 5;
     const payload = {
+      site_id: Number(siteId),
       flows: flows.map(Number),
       interval_index: intervalIndex,
       day_of_week: dayOfWeek,
@@ -164,12 +201,26 @@ export default function Predictor() {
                   id="interval-select"
                   className="form-select"
                   value={intervalIndex}
-                  onChange={e => setIntervalIndex(Number(e.target.value))}
+                  disabled
+                  title="Automatically updates to current time (ceiling to 15-minute interval)"
                 >
                   {INTERVAL_LABELS.map((lbl, i) => (
                     <option key={i} value={i}>{lbl}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" htmlFor="site-id-input">SCATS site id</label>
+                <input
+                  id="site-id-input"
+                  type="number"
+                  className="form-input"
+                  min="0"
+                  step="1"
+                  value={siteId}
+                  onChange={e => setSiteId(e.target.value)}
+                />
               </div>
 
               <div className="form-group" style={{ margin: 0 }}>
@@ -305,6 +356,9 @@ export default function Predictor() {
                   </span>
                   <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
                     {result.is_congested ? '⚠ Road is over capacity' : 'Road is under capacity'}
+                  </span>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                    Site: {result.site_id ?? Number(siteId)} ({result.scaler_scope || 'global'} scaler)
                   </span>
                 </div>
 

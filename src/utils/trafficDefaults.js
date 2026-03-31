@@ -1,1 +1,1 @@
-export const SAMPLE_FLOWS = [42, 55, 68, 80, 91, 75, 63, 58, 72, 88, 95, 82];
+export const SAMPLE_FLOWS = [71, 53, 54, 34, 38, 27, 28, 19, 10, 29, 19, 21];

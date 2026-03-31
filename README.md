@@ -21,6 +21,7 @@ The model predicts the next traffic flow value from a sequence of the latest 12 
 
 For each prediction request, the backend expects JSON with these fields:
 
+- site_id (optional but recommended): integer SCATS/site id for site-specific scaling
 - flows (required): list of exactly 12 non-negative numbers
 - interval_index (required): integer from 0 to 95 for the next 15-minute slot
 - day_of_week (required): integer from 0 to 6 where 0=Monday, 6=Sunday
@@ -37,6 +38,7 @@ Important notes:
 Example valid payload:
 
 {
+  "site_id": 4057,
   "flows": [42, 55, 68, 80, 91, 75, 63, 58, 72, 88, 95, 82],
   "interval_index": 32,
   "day_of_week": 1,
@@ -118,6 +120,7 @@ Invoke-RestMethod -Uri "http://localhost:5000/model-info" -Method Get
 PowerShell example:
 
 $body = @{
+  site_id = 4057
   flows = @(42,55,68,80,91,75,63,58,72,88,95,82)
   interval_index = 32
   day_of_week = 1
@@ -180,6 +183,7 @@ Slow first request:
 
 | Field | Type | Required | Range/Rule | Meaning |
 |---|---|---|---|---|
+| site_id | integer | No (recommended) | >= 0 | SCATS/site id used for site-specific scaler when available |
 | flows | array[number] | Yes | Exactly 12 values, each >= 0 | Last 12 x 15-minute traffic readings |
 | interval_index | integer | Yes | 0..95 | Next 15-minute slot to predict |
 | day_of_week | integer | Yes | 0..6 | 0=Mon ... 6=Sun |
