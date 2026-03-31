@@ -24,7 +24,7 @@ function makeIntervalLabels() {
   const labels = [];
   for (let h = 0; h < 24; h++) {
     for (let m = 0; m < 60; m += 15) {
-      labels.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+      labels.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
     }
   }
   return labels; // 96 labels
@@ -37,12 +37,27 @@ function conditionClass(condition) {
   return condition.toLowerCase().replace(' ', '-');
 }
 
+// Calculate the next 15-minute interval index from current time (ceiling)
+function getCurrentIntervalIndex() {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+
+  // Round up to next 15-minute interval
+  const roundedMinutes = Math.ceil(totalMinutes / 15) * 15;
+  const totalIntervalsFromMidnight = roundedMinutes / 15;
+
+  // Return index (0-95, wrapping at 24 hours)
+  return totalIntervalsFromMidnight % 96;
+}
+
 // ── Main Component ─────────────────────────────────────────
 export default function Predictor() {
   // Form state
   const [flows, setFlows] = useState(Array(LOOKBACK).fill(''));
   const [siteId, setSiteId] = useState('4057');
-  const [intervalIndex, setIntervalIndex] = useState(32); // default 08:00
+  const [intervalIndex, setIntervalIndex] = useState(getCurrentIntervalIndex()); // update to current interval
   const [dayOfWeek, setDayOfWeek] = useState(0);          // default Monday
   const [distanceKm, setDistanceKm] = useState(1.0);
   const [numIntersections, setNumIntersections] = useState(1);
@@ -71,6 +86,15 @@ export default function Predictor() {
         }
       })
       .catch(() => setBackendStatus('error'));
+  }, []);
+
+  // ── Update interval index in real-time (every minute) ──
+  useEffect(() => {
+    setIntervalIndex(getCurrentIntervalIndex());
+    const timer = setInterval(() => {
+      setIntervalIndex(getCurrentIntervalIndex());
+    }, 60000); // Update every 60 seconds (1 minute)
+    return () => clearInterval(timer);
   }, []);
 
   // ── Flow input handler ──
@@ -177,7 +201,8 @@ export default function Predictor() {
                   id="interval-select"
                   className="form-select"
                   value={intervalIndex}
-                  onChange={e => setIntervalIndex(Number(e.target.value))}
+                  disabled
+                  title="Automatically updates to current time (ceiling to 15-minute interval)"
                 >
                   {INTERVAL_LABELS.map((lbl, i) => (
                     <option key={i} value={i}>{lbl}</option>
@@ -383,16 +408,16 @@ export default function Predictor() {
             ) : (
               <div className="info-rows">
                 {[
-                  { key: 'Model file',     val: modelInfo.model_file },
-                  { key: 'Mode',           val: modelInfo.mode || 'single-site' },
-                  { key: 'Default site',   val: modelInfo.default_site_id ?? modelInfo.site_id ?? '-' },
-                  { key: 'Known sites',    val: modelInfo.known_sites ?? '-' },
-                  { key: 'Lookback',       val: `${modelInfo.lookback} intervals (${modelInfo.lookback * 15} min)` },
-                  { key: 'Input shape',    val: modelInfo.input_shape },
-                  { key: 'Output shape',   val: modelInfo.output_shape },
-                  { key: 'Total params',   val: modelInfo.total_params?.toLocaleString() },
-                  { key: 'Scaler fitted',  val: modelInfo.scaler_ready ? '✓ Yes' : '✗ Approximated', isGreen: modelInfo.scaler_ready },
-                  { key: 'Flow capacity',  val: `≈ ${Math.round(modelInfo.flow_capacity)} veh/h` },
+                  { key: 'Model file', val: modelInfo.model_file },
+                  { key: 'Mode', val: modelInfo.mode || 'single-site' },
+                  { key: 'Default site', val: modelInfo.default_site_id ?? modelInfo.site_id ?? '-' },
+                  { key: 'Known sites', val: modelInfo.known_sites ?? '-' },
+                  { key: 'Lookback', val: `${modelInfo.lookback} intervals (${modelInfo.lookback * 15} min)` },
+                  { key: 'Input shape', val: modelInfo.input_shape },
+                  { key: 'Output shape', val: modelInfo.output_shape },
+                  { key: 'Total params', val: modelInfo.total_params?.toLocaleString() },
+                  { key: 'Scaler fitted', val: modelInfo.scaler_ready ? '✓ Yes' : '✗ Approximated', isGreen: modelInfo.scaler_ready },
+                  { key: 'Flow capacity', val: `≈ ${Math.round(modelInfo.flow_capacity)} veh/h` },
                   { key: 'Speed capacity', val: `≈ ${Math.round(modelInfo.speed_capacity)} km/h` },
                 ].map(({ key, val, isGreen }) => (
                   <div key={key} className="info-row">
