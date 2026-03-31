@@ -42,7 +42,7 @@ export default function MapPage() {
   const flowCacheRef = useRef(new Map());
 
   useEffect(() => {
-    fetch("/mapInfo/Traffic_Count_Locations_with_LONG_LAT.csv")
+    fetch("/mapInfo/Traffic_Count_Locations_FILTERED.csv")
       .then(res => res.text())
       .then(csv => {
         Papa.parse(csv, {
@@ -52,7 +52,7 @@ export default function MapPage() {
 
             const parsed = results.data.map(row => ({
               id: Number(row["OBJECTID"]),
-              scats: Number.isFinite(Number(row["SCATS_SITE"])) ? Number(row["SCATS_SITE"]) : null,
+              scats: Number.isFinite(Number(row["TFM_ID"])) ? Number(row["TFM_ID"]) : null,
               lat: parseFloat(row["Y"]),
               lng: parseFloat(row["X"]),
               location: row["SITE_DESC"],
