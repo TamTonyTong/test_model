@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-labelledby="title desc">
+  <title id="title">Contributor 2 Portrait</title>
+  <desc id="desc">Gradient portrait placeholder for contributor 2.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="blob" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#34d399" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#facc15" stop-opacity="0.75"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#bg)"/>
+  <path d="M130 90h530v370H130z" fill="#0b1222" opacity="0.42"/>
+  <circle cx="150" cy="150" r="150" fill="url(#blob)" opacity="0.4"/>
+  <circle cx="700" cy="470" r="190" fill="#2dd4bf" opacity="0.2"/>
+  <text x="400" y="320" text-anchor="middle" dominant-baseline="middle" fill="#ecfeff" font-size="120" font-family="Inter, Arial, sans-serif" font-weight="700">C2</text>
+</svg>
