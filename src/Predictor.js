@@ -354,8 +354,8 @@ export default function Predictor() {
             ) : (
               <div className="info-rows">
                 {[
-                  { key: 'Model file',     val: modelInfo.model_file },
-                  { key: 'SCATS Site',     val: modelInfo.site_id },
+                  { key: 'Model file',     val: modelInfo.model_file?.replace(/_site_\d+/i, '') ?? 'CNN-LSTM Hybrid' },
+                  { key: 'Coverage',       val: 'All SCATS Sites' },
                   { key: 'Lookback',       val: `${modelInfo.lookback} intervals (${modelInfo.lookback * 15} min)` },
                   { key: 'Input shape',    val: modelInfo.input_shape },
                   { key: 'Output shape',   val: modelInfo.output_shape },

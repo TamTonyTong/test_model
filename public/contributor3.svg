@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-labelledby="title desc">
+  <title id="title">Contributor 3 Portrait</title>
+  <desc id="desc">Gradient portrait placeholder for contributor 3.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f2937"/>
+      <stop offset="1" stop-color="#7c2d12"/>
+    </linearGradient>
+    <linearGradient id="blob" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fb7185" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#fbbf24" stop-opacity="0.8"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="600" fill="url(#bg)"/>
+  <ellipse cx="640" cy="120" rx="210" ry="140" fill="url(#blob)" opacity="0.42"/>
+  <ellipse cx="190" cy="520" rx="180" ry="130" fill="#f59e0b" opacity="0.2"/>
+  <rect x="240" y="90" width="340" height="420" rx="28" fill="#111827" opacity="0.52"/>
+  <text x="410" y="310" text-anchor="middle" dominant-baseline="middle" fill="#fff7ed" font-size="120" font-family="Inter, Arial, sans-serif" font-weight="700">C3</text>
+</svg>
