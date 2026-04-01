@@ -18,6 +18,7 @@ import { SAMPLE_FLOWS } from './utils/trafficDefaults';
 const API = 'http://127.0.0.1:5000';
 const LOOKBACK = 12;
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const MODELS = ['CNN-LSTM', 'LSTM', 'GRU', 'LSTM-GRU Hybrid'];
 
 // Generate interval labels: 00:00, 00:15, … 23:45
 function makeIntervalLabels() {
@@ -61,6 +62,7 @@ export default function Predictor() {
   const [dayOfWeek, setDayOfWeek] = useState(0);          // default Monday
   const [distanceKm, setDistanceKm] = useState(1.0);
   const [numIntersections, setNumIntersections] = useState(1);
+  const [selectedModel, setSelectedModel] = useState('CNN-LSTM'); // default model selection
 
   // App state
   const [loading, setLoading] = useState(false);
@@ -75,8 +77,8 @@ export default function Predictor() {
       .then(r => r.json())
       .then(() => {
         setBackendStatus('ok');
-        // Also fetch model info
-        return fetch(`${API}/model-info`);
+        // Also fetch model info for selected model
+        return fetch(`${API}/model-info?model=${encodeURIComponent(selectedModel)}`);
       })
       .then(r => r.json())
       .then(info => {
@@ -86,7 +88,15 @@ export default function Predictor() {
         }
       })
       .catch(() => setBackendStatus('error'));
-  }, []);
+  }, [selectedModel]);
+
+  // ── Fetch model info when selected model changes ──
+  useEffect(() => {
+    fetch(`${API}/model-info?model=${encodeURIComponent(selectedModel)}`)
+      .then(r => r.json())
+      .then(info => setModelInfo(info))
+      .catch(() => setModelInfo(null));
+  }, [selectedModel]);
 
   // ── Update interval index in real-time (every minute) ──
   useEffect(() => {
@@ -149,6 +159,7 @@ export default function Predictor() {
     const isWeekend = dayOfWeek >= 5;
     const payload = {
       site_id: Number(siteId),
+      model: selectedModel,
       flows: flows.map(Number),
       interval_index: intervalIndex,
       day_of_week: dayOfWeek,
@@ -221,6 +232,20 @@ export default function Predictor() {
                   value={siteId}
                   onChange={e => setSiteId(e.target.value)}
                 />
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" htmlFor="model-select">Model</label>
+                <select
+                  id="model-select"
+                  className="form-select"
+                  value={selectedModel}
+                  onChange={e => setSelectedModel(e.target.value)}
+                >
+                  {MODELS.map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group" style={{ margin: 0 }}>
@@ -408,10 +433,9 @@ export default function Predictor() {
             ) : (
               <div className="info-rows">
                 {[
-                  { key: 'Model file', val: modelInfo.model_file },
-                  { key: 'Mode', val: modelInfo.mode || 'single-site' },
-                  { key: 'Default site', val: modelInfo.default_site_id ?? modelInfo.site_id ?? '-' },
-                  { key: 'Known sites', val: modelInfo.known_sites ?? '-' },
+                  { key: 'Model type', val: selectedModel },
+                  { key: 'Model file', val: modelInfo.model_file?.replace(/_site_\d+/i, '') ?? selectedModel },
+                  { key: 'Coverage', val: 'All SCATS Sites' },
                   { key: 'Lookback', val: `${modelInfo.lookback} intervals (${modelInfo.lookback * 15} min)` },
                   { key: 'Input shape', val: modelInfo.input_shape },
                   { key: 'Output shape', val: modelInfo.output_shape },

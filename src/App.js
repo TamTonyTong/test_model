@@ -1,9 +1,13 @@
 import { BrowserRouter as Router, Routes, Route, NavLink } from "react-router-dom";
 import Predictor from "./Predictor";
 import Map from "./Map";
+import About from "./About";
+import Contact from "./Contact";
 import "./styles/App.css";
 
 export default function App() {
+  const currentYear = new Date().getFullYear();
+
   return (
     <Router>
       <div className="app-shell">
@@ -12,7 +16,7 @@ export default function App() {
             <div className="shell-brand-icon" aria-hidden="true">TBRGS</div>
             <div>
               <h1>TBRGS - Traffic Flow Predictor</h1>
-              <p>CNN-LSTM model · Global Multi-Site · Boroondara Network</p>
+              <p>CNN-LSTM model · Multi-site SCATS Detection · Boroondara Network</p>
             </div>
           </div>
 
@@ -30,13 +34,43 @@ export default function App() {
             >
               Map Explorer
             </NavLink>
+            <NavLink
+              to="/about"
+              className={({ isActive }) => `shell-link ${isActive ? "active" : ""}`}
+            >
+              About
+            </NavLink>
+            <NavLink
+              to="/contact"
+              className={({ isActive }) => `shell-link ${isActive ? "active" : ""}`}
+            >
+              Contact
+            </NavLink>
           </nav>
         </header>
 
-        <Routes>
-          <Route path="/" element={<Predictor />} />
-          <Route path="/map" element={<Map />} />
-        </Routes>
+        <main className="shell-content">
+          <Routes>
+            <Route path="/" element={<Predictor />} />
+            <Route path="/map" element={<Map />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/contact" element={<Contact />} />
+          </Routes>
+        </main>
+
+        <footer className="app-footer" aria-label="Site footer">
+          <div className="app-footer-inner">
+            <div>
+              <p className="app-footer-title">TBRGS Traffic Intelligence Platform</p>
+              <p className="app-footer-subtitle">CNN-LSTM forecasting for the Boroondara road network.</p>
+            </div>
+            <div className="app-footer-meta">
+              <span>All SCATS Sites</span>
+              <span>Version 1.0</span>
+              <span>{currentYear}</span>
+            </div>
+          </div>
+        </footer>
       </div>
     </Router>
   );

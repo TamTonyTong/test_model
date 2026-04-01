@@ -237,6 +237,56 @@
   box-shadow: 0 10px 20px rgba(15, 23, 42, 0.3);
 }
 
+.path-times-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(249, 250, 251, 0.95);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  min-width: 220px;
+}
+
+.path-times-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #cbd5e1;
+}
+
+.path-times-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.path-time-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 0.78rem;
+}
+
+.path-number {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.path-time {
+  font-weight: 700;
+  color: #0891b2;
+  background: #ecfeff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  min-width: 55px;
+  text-align: right;
+}
+
 @media (max-width: 900px) {
   .map-page {
     padding: 12px;

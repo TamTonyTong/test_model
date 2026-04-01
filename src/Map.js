@@ -31,12 +31,13 @@ const DEFAULT_ZOOM = 12;
 
 // giả định capacity
 // const FLOW_CAPACITY = 1800;
- 
+
 export default function MapPage() {
   const [sites, setSites] = useState([]);
   const [origin, setOrigin] = useState(null);
   const [destinations, setDestinations] = useState([]);
   const [paths, setPaths] = useState([]);
+  const [pathDetails, setPathDetails] = useState([]);  // {path, totalTime}
   const [loading, setLoading] = useState(false);
   const mapRef = useRef(null);
   const flowCacheRef = useRef(new Map());
@@ -177,6 +178,51 @@ export default function MapPage() {
       .filter(points => points.length > 1);
   }, [paths, rawSiteById]);
 
+  // Extract all unique SCATS sites from multiple paths
+  const extractUniqueSitesFromPaths = (pathsList) => {
+    const uniqueNodeIds = new Set();
+    for (const path of pathsList) {
+      for (const nodeId of path) {
+        uniqueNodeIds.add(nodeId);
+      }
+    }
+    return Array.from(uniqueNodeIds);
+  };
+
+  // Recalculate travel times for paths using predicted flows
+  const recalculatePathsWithPredictedFlows = async (pathsList) => {
+    // Step 3: Get unique SCATS sites
+    const uniqueNodeIds = extractUniqueSitesFromPaths(pathsList);
+
+    // Step 4: Predict flows for these sites
+    await prefetchFlows(uniqueNodeIds);
+
+    // Step 5: Calculate total travel time for each path
+    const recalculatedPaths = [];
+    for (const path of pathsList) {
+      let totalTime = 0;
+      for (let i = 0; i < path.length - 1; i++) {
+        const fromNodeId = path[i];
+        const toNodeId = path[i + 1];
+        const from = rawSiteById.get(fromNodeId);
+        const to = rawSiteById.get(toNodeId);
+
+        if (!from || !to) continue;
+
+        const distanceKm = dist(from, to) * 111;
+        const flow = flowCacheRef.current.get(fromNodeId) ?? 1000;
+        const segmentTime = computeTravelTime(flow, distanceKm, 1);
+        totalTime += segmentTime;
+      }
+      recalculatedPaths.push({ path, totalTime });
+    }
+
+    // Step 6: Sort by time (least to most consuming)
+    recalculatedPaths.sort((a, b) => a.totalTime - b.totalTime);
+
+    return recalculatedPaths;
+  };
+
   const mapBounds = useMemo(() => {
     if (sites.length === 0) return null;
 
@@ -184,22 +230,22 @@ export default function MapPage() {
   }, [sites]);
 
   const selectedPathDuration = useMemo(() => {
-    if (!paths[0] || paths[0].length < 2) return null;
+    if (pathDetails.length === 0) return null;
+    return pathDetails[0].totalTime.toFixed(1);
+  }, [pathDetails]);
 
-    let total = 0;
-
-    for (let i = 0; i < paths[0].length - 1; i += 1) {
-      const from = rawSiteById.get(paths[0][i]);
-      const to = rawSiteById.get(paths[0][i + 1]);
-
-      if (!from || !to) continue;
-
-      const distanceKm = dist(from, to) * 111;
-      total += computeTravelTime(1000, distanceKm, 1);
+  // Format travel time from minutes to days/hours/minutes
+  const formatTravelTime = (minutes) => {
+    if (minutes >= 1440) {
+      const days = (minutes / 1440).toFixed(1);
+      return `${days} day${days !== '1.0' ? 's' : ''}`;
+    } else if (minutes >= 60) {
+      const hours = (minutes / 60).toFixed(1);
+      return `${hours} hour${hours !== '1.0' ? 's' : ''}`;
+    } else {
+      return `${minutes.toFixed(1)} min`;
     }
-
-    return total.toFixed(1);
-  }, [paths, rawSiteById]);
+  };
 
   // calculate travel time from flow and distance
   const computeTravelTime = (flow, distanceKm, intersections = 1) => {
@@ -297,45 +343,69 @@ export default function MapPage() {
     return { nodes, edges };
   };
 
-  // use algorithm
+  // Orchestrate the complete flow:
+  // 1. Build graph with static cost
+  // 2. Use Yen algorithm to get top 5 candidate paths
+  // 3-7. Recalculate paths with predicted flows and sort
   const handleSolve = async () => {
-
     if (!origin || destinations.length === 0) return;
 
     setLoading(true);
+    setPaths([]);
+    setPathDetails([]);
 
-    const { nodes, edges } = await buildGraph();
+    try {
+      // Step 1: Build graph with static cost (distance-based)
+      const { nodes, edges } = await buildGraph();
 
-    const resultPaths = yenKShortest(
-      nodes,
-      edges,
-      origin,
-      destinations[0],
-      2
-    );
+      // Step 2: Use Yen algorithm to take top 5 candidate paths
+      const candidatePaths = yenKShortest(
+        nodes,
+        edges,
+        origin,
+        destinations[0],
+        5
+      );
 
-    if (!resultPaths || resultPaths.length === 0) {
-      alert("No path found");
+      if (!candidatePaths || candidatePaths.length === 0) {
+        alert("No path found");
+        setLoading(false);
+        return;
+      }
+
+      // Steps 3-6: Recalculate paths with predicted flows and sort
+      const recalculatedPaths = await recalculatePathsWithPredictedFlows(candidatePaths);
+
+      // Update state with sorted paths
+      setPaths(recalculatedPaths.map(pd => pd.path));
+      setPathDetails(recalculatedPaths);
+
+    } catch (error) {
+      console.error("Error during path calculation:", error);
+      alert("Error calculating paths");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setPaths(resultPaths);
-    setLoading(false);
   };
 
   const handleNodeClick = (siteId) => {
     if (!origin) {
       setOrigin(siteId);
+      setPaths([]);
+      setPathDetails([]);
       return;
     }
 
     if (origin === siteId) {
       setOrigin(null);
+      setPaths([]);
+      setPathDetails([]);
       return;
     }
 
     setDestinations([siteId]);
+    setPaths([]);
+    setPathDetails([]);
   };
 
   const handleResetView = () => {
@@ -366,7 +436,11 @@ export default function MapPage() {
               className="map-select"
               id="origin-select"
               value={origin ?? ""}
-              onChange={e => setOrigin(Number(e.target.value))}
+              onChange={e => {
+                setOrigin(Number(e.target.value));
+                setPaths([]);
+                setPathDetails([]);
+              }}
             >
               <option value="">Select Origin</option>
               {(sites || []).map(s => (
@@ -385,7 +459,11 @@ export default function MapPage() {
               className="map-select"
               id="dest-select"
               value={destinations[0] ?? ""}
-              onChange={e => setDestinations([Number(e.target.value)])}
+              onChange={e => {
+                setDestinations([Number(e.target.value)]);
+                setPaths([]);
+                setPathDetails([]);
+              }}
             >
               <option value="">Select Destination</option>
               {(sites || []).map(s => (
@@ -418,7 +496,7 @@ export default function MapPage() {
               onClick={handleSolve}
               disabled={loading || !origin || !destinations[0]}
             >
-              {loading ? "Calculating..." : "Find Top 2 Paths"}
+              {loading ? "Calculating..." : "Find Top 5 Paths"}
             </button>
           </div>
         </div>
@@ -433,8 +511,21 @@ export default function MapPage() {
             Candidate edges: <b>{edgesById.length}</b>
           </span>
           <span>
-            Best route (est): <b>{selectedPathDuration ? `${selectedPathDuration} min` : "-"}</b>
+            Best route (est): <b>{selectedPathDuration ? formatTravelTime(parseFloat(selectedPathDuration)) : "-"}</b>
           </span>
+          {pathDetails.length > 0 && (
+            <div className="path-times-summary">
+              <div className="path-times-header">Route Times (sorted):</div>
+              <div className="path-times-list">
+                {pathDetails.map((pathDetail, idx) => (
+                  <div key={idx} className="path-time-item">
+                    <span className="path-number">Route {idx + 1}:</span>
+                    <span className="path-time">{formatTravelTime(pathDetail.totalTime)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <MapContainer
