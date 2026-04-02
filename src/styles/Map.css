@@ -63,6 +63,57 @@
   box-shadow: 0 0 0 3px rgba(8, 145, 178, 0.17);
 }
 
+.map-combobox {
+  position: relative;
+}
+
+.map-suggest-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 920;
+  max-height: 220px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
+  padding: 4px;
+}
+
+.map-suggest-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  font-size: 0.78rem;
+  border-radius: 8px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+
+.map-suggest-item:hover {
+  background: #f1f5f9;
+}
+
+.map-suggest-id {
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.map-suggest-name {
+  flex: 1 1 auto;
+  text-align: right;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .map-actions {
   display: flex;
   align-items: center;
