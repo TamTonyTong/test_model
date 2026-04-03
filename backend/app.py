@@ -17,9 +17,6 @@ from flask_cors import CORS
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 
-# ──────────────────────────────────────────────
-# Config
-# ──────────────────────────────────────────────
 BACKEND_DIR    = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR    = os.path.dirname(BACKEND_DIR)
 MODEL_PATH     = os.path.join(PROJECT_DIR, "model", "tbrgs_cnn_lstm_global_best.keras")
@@ -49,9 +46,7 @@ FLOW_AT_35_KMH = A_QUAD * 35**2 + B_QUAD * 35
 app = Flask(__name__)
 CORS(app)
 
-# ──────────────────────────────────────────────
 # Load model + fit scaler at startup
-# ──────────────────────────────────────────────
 print("Loading model …")
 model = tf.keras.models.load_model(MODEL_PATH)
 print(f"  Model loaded from: {MODEL_PATH}")
@@ -118,10 +113,7 @@ except Exception as e:
     KNOWN_SITE_IDS = set()
     SCALER_READY = False
 
-
-# ──────────────────────────────────────────────
 # Helper: cyclical encoding
-# ──────────────────────────────────────────────
 def cyclic(val, max_val):
     """Return (sin, cos) cyclical encoding."""
     angle = 2 * math.pi * val / max_val
