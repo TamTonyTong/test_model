@@ -122,6 +122,13 @@
   margin-top: 12px;
 }
 
+.map-status-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+}
+
 .map-status {
   border-radius: 10px;
   padding: 9px 11px;
@@ -139,6 +146,17 @@
   background: #ecfeff;
   color: #155e75;
   border: 1px solid #a5f3fc;
+}
+
+.map-warning {
+  margin: 0;
+  border-radius: 10px;
+  padding: 9px 11px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
 }
 
 .map-action-buttons {
@@ -399,6 +417,10 @@
   .map-actions {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .map-status-wrap {
+    width: 100%;
   }
 
   .map-action-buttons {

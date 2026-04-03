@@ -52,9 +52,11 @@ export default function MapPage() {
     const [destinationOpen, setDestinationOpen] = useState(false);
     const [paths, setPaths] = useState([]);
     const [pathDetails, setPathDetails] = useState([]);  // {path, totalTime}
+    const [backendDisconnected, setBackendDisconnected] = useState(false);
     const [loading, setLoading] = useState(false);
     const mapRef = useRef(null);
     const flowCacheRef = useRef(new Map());
+    const backendWarningLoggedRef = useRef(false);
 
     useEffect(() => {
         fetch("/mapInfo/Traffic_Count_Locations_FILTERED.csv")
@@ -117,15 +119,29 @@ export default function MapPage() {
                 body: JSON.stringify(payload)
             });
 
+            if (!res.ok) {
+                throw new Error(`Predict API returned ${res.status}`);
+            }
+
             const data = await res.json();
-            const value = Number(data.predicted_flow_per_hour);
-            const safeValue = Number.isFinite(value) ? value : 1000;
+            const rawFlow = data?.predicted_flow_per_hour;
+            const parsedFlow = typeof rawFlow === "number"
+                ? rawFlow
+                : (typeof rawFlow === "string" && rawFlow.trim() !== "" ? Number(rawFlow) : NaN);
+            const safeValue = Number.isFinite(parsedFlow) ? parsedFlow : 1000;
 
             flowCacheRef.current.set(nodeId, safeValue);
 
             return safeValue;
 
-        } catch {
+        } catch (error) {
+            if (!backendWarningLoggedRef.current) {
+                console.warn("Prediction backend is not connected. Falling back to default flow 1000.", error);
+                backendWarningLoggedRef.current = true;
+            }
+
+            setBackendDisconnected(true);
+            flowCacheRef.current.set(nodeId, 1000);
             return 1000;
         }
     };
@@ -259,6 +275,8 @@ export default function MapPage() {
     const handleSolve = async () => {
         if (!origin || destinations.length === 0) return;
 
+        setBackendDisconnected(false);
+        backendWarningLoggedRef.current = false;
         setLoading(true);
         setPaths([]);
         setPathDetails([]);
@@ -572,11 +590,18 @@ export default function MapPage() {
                 </div>
 
                 <div className="map-actions">
-                    <p className={`map-status ${origin && destinations[0] ? "ready" : "pending"}`}>
-                        {origin && destinations[0]
-                            ? `Ready to find routes from ${origin} to ${destinations[0]}`
-                            : "Select both origin and destination"}
-                    </p>
+                    <div className="map-status-wrap">
+                        <p className={`map-status ${origin && destinations[0] ? "ready" : "pending"}`}>
+                            {origin && destinations[0]
+                                ? `Ready to find routes from ${origin} to ${destinations[0]}`
+                                : "Select both origin and destination"}
+                        </p>
+                        {backendDisconnected && (
+                            <p className="map-warning" role="alert">
+                                Backend is not connected, the result is just based on search algorithm without traffic flow predicted.
+                            </p>
+                        )}
+                    </div>
 
                     <div className="map-action-buttons">
                         <button

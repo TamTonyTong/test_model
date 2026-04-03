@@ -50,12 +50,12 @@ This document defines 12 functional and robustness test scenarios for the map ro
 
 ## 3. Invalid Node Input (Non-existent ID)
 **Input**
-- Origin: `9999` (not in dataset)
-- Destination: valid OBJECTID (example: `200`)
+- Origin: `99999` (not in dataset)
+- Destination: valid OBJECTID (example: `32758`)
 
 **Steps**
-1. Type `9999` in Origin.
-2. Type `200` Destination.
+1. Type `99999` in Origin.
+2. Type `32758` Destination.
 
 **Expected**
 - Origin cannot be resolved (`resolveFromInput` returns `null`).
@@ -108,7 +108,7 @@ This document defines 12 functional and robustness test scenarios for the map ro
 4. Run route calculation.
 
 **Expected**
-- `getFlow()` falls back to default flow `1000`.
+- `getFlow()` falls back to default flow `1000` and message displays "Backend is not connected, the result is just based on search algorithm without traffic flow predicted."
 - Paths are still recalculated and displayed (if graph path exists).
 - No frontend crash.
 - Errors are handled gracefully.
@@ -122,8 +122,18 @@ This document defines 12 functional and robustness test scenarios for the map ro
 - `NaN` or `null`
 
 **Steps**
-1. Mock or force API response with extreme values.
-2. Run route calculation.
+1. Start frontend and backend services.
+2. Open browser DevTools Console (to inspect route recalculation logs).
+3. In `backend/app.py`, locate response field `"predicted_flow_per_hour"` in `/predict` return block.
+4. For sub-test A (very high value), temporarily set `"predicted_flow_per_hour": 100000`.
+5. Save backend file and rerun backend service.
+6. In frontend map, set Origin `33485` and Destination `32758`, then click **Find Top 5 Paths**.
+7. Verify route still renders and travel-time estimate increases compared to normal run.
+8. For sub-test B (`null`), temporarily set `"predicted_flow_per_hour": None`, then rerun backend and run route again.
+9. Verify invalid value falls back to flow `1000` (check segment logs in Console) and UI remains stable.
+10. For sub-test C (`NaN`), temporarily set `"predicted_flow_per_hour": "NaN"`, then rerun backend and run route again.
+11. Verify invalid value falls back to flow `1000`, no `NaN` appears in path totals, and route summary remains visible.
+12. Restore original backend response line `"predicted_flow_per_hour": round(pred_flow_hour, 2)` after testing.
 
 **Expected**
 - Invalid values (`NaN`, `null`) are replaced with fallback `1000`.
