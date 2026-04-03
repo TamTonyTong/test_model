@@ -3,6 +3,7 @@ import Predictor from "./Predictor";
 import Map from "./Map";
 import About from "./About";
 import Contact from "./Contact";
+import Visualize from "./Visualize";
 import "./styles/App.css";
 
 export default function App() {
@@ -35,6 +36,12 @@ export default function App() {
               Predictor
             </NavLink>
             <NavLink
+              to="/visualize"
+              className={({ isActive }) => `shell-link ${isActive ? "active" : ""}`}
+            >
+              Visualize
+            </NavLink>
+            <NavLink
               to="/about"
               className={({ isActive }) => `shell-link ${isActive ? "active" : ""}`}
             >
@@ -53,6 +60,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Map />} />
             <Route path="/predictor" element={<Predictor />} />
+            <Route path="/visualize" element={<Visualize />} />
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
           </Routes>
