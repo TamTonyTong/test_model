@@ -9,16 +9,16 @@
  *   - Right column: Results (metrics, condition badge, chart) + Model info
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './styles/App.css';
 import PredictionChart from './components/PredictionChart';
-import { SAMPLE_FLOWS } from './utils/trafficDefaults';
 
 // ── Constants ──────────────────────────────────────────────
 const API = 'http://127.0.0.1:5000';
 const LOOKBACK = 12;
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MODELS = ['CNN-LSTM', 'LSTM', 'GRU', 'LSTM-GRU Hybrid'];
+const SAMPLE_DATASET_URL = '/mapInfo/VSDATA_202603_Summed.csv';
 
 // Generate interval labels: 00:00, 00:15, … 23:45
 function makeIntervalLabels() {
@@ -31,11 +31,157 @@ function makeIntervalLabels() {
   return labels; // 96 labels
 }
 const INTERVAL_LABELS = makeIntervalLabels();
+const INTERVAL_COLUMNS = Array.from({ length: 96 }, (_, i) => `V${String(i).padStart(2, '0')}`);
 
 // ── Helper ─────────────────────────────────────────────────
 function conditionClass(condition) {
   if (!condition) return '';
   return condition.toLowerCase().replace(' ', '-');
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      values.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current);
+  return values;
+}
+
+function parseCsvDate(rawDate) {
+  if (!rawDate) return null;
+  const value = String(rawDate).trim();
+
+  const isoMatch = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const [, y, m, d] = isoMatch;
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+  }
+
+  const slashMatch = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const [, m, d, y] = slashMatch;
+    return new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getDowIndex(date) {
+  return (date.getUTCDay() + 6) % 7; // JS: Sunday=0, app: Monday=0
+}
+
+function buildSampleDataset(csvText) {
+  const lines = csvText.split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (lines.length < 2) {
+    throw new Error('CSV file is empty or invalid.');
+  }
+
+  const header = parseCsvLine(lines[0]).map(col => col.trim());
+  const siteIdx = header.indexOf('NB_SCATS_SITE');
+  const dateIdx = header.indexOf('QT_INTERVAL_COUNT');
+  if (siteIdx === -1 || dateIdx === -1) {
+    throw new Error('CSV is missing required columns NB_SCATS_SITE or QT_INTERVAL_COUNT.');
+  }
+
+  const intervalIndices = INTERVAL_COLUMNS.map(col => header.indexOf(col));
+  if (intervalIndices.some(idx => idx === -1)) {
+    throw new Error('CSV is missing one or more V00-V95 columns.');
+  }
+
+  const rowsBySite = new Map();
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCsvLine(lines[i]);
+    if (cols.length <= dateIdx) continue;
+
+    const site = Number(cols[siteIdx]);
+    if (!Number.isInteger(site)) continue;
+
+    const date = parseCsvDate(cols[dateIdx]);
+    if (!date) continue;
+
+    const flows = intervalIndices.map(idx => {
+      const num = Number(cols[idx]);
+      return Number.isFinite(num) ? num : null;
+    });
+
+    const row = {
+      date,
+      dayOfWeek: getDowIndex(date),
+      flows,
+    };
+
+    if (!rowsBySite.has(site)) {
+      rowsBySite.set(site, []);
+    }
+    rowsBySite.get(site).push(row);
+  }
+
+  for (const siteRows of rowsBySite.values()) {
+    siteRows.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }
+
+  return rowsBySite;
+}
+
+function findPreviousDayRow(rows, rowIdx) {
+  if (rowIdx <= 0) return null;
+  const current = rows[rowIdx];
+  const prev = rows[rowIdx - 1];
+  if (!current || !prev) return null;
+
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  const diff = current.date.getTime() - prev.date.getTime();
+  return diff === oneDayMs ? prev : null;
+}
+
+function extractLookbackSequence(currentRow, prevRow, intervalIdx) {
+  const sequence = [];
+  const startIdx = intervalIdx - (LOOKBACK - 1);
+
+  for (let i = 0; i < LOOKBACK; i++) {
+    const absoluteIdx = startIdx + i;
+    const fromPrevDay = absoluteIdx < 0;
+    const sourceRow = fromPrevDay ? prevRow : currentRow;
+    const sourceIdx = fromPrevDay ? absoluteIdx + 96 : absoluteIdx;
+
+    if (!sourceRow || sourceIdx < 0 || sourceIdx > 95) {
+      return null;
+    }
+
+    const value = sourceRow.flows[sourceIdx];
+    if (!Number.isFinite(value) || value < 0) {
+      return null;
+    }
+
+    sequence.push(value);
+  }
+
+  return sequence;
 }
 
 // Calculate the next 15-minute interval index from current time (ceiling)
@@ -55,6 +201,8 @@ function getCurrentIntervalIndex() {
 
 // ── Main Component ─────────────────────────────────────────
 export default function Predictor() {
+  const sampleDatasetPromiseRef = useRef(null);
+
   // Form state
   const [flows, setFlows] = useState(Array(LOOKBACK).fill(''));
   const [siteId, setSiteId] = useState('4057');
@@ -116,14 +264,71 @@ export default function Predictor() {
     });
   }, []);
 
+  const getSampleDataset = useCallback(async () => {
+    if (!sampleDatasetPromiseRef.current) {
+      sampleDatasetPromiseRef.current = fetch(SAMPLE_DATASET_URL)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          return res.text();
+        })
+        .then(buildSampleDataset)
+        .catch(err => {
+          sampleDatasetPromiseRef.current = null;
+          throw err;
+        });
+    }
+    return sampleDatasetPromiseRef.current;
+  }, []);
+
   // ── Fill with sample data ──
-  const loadSample = () => {
-    setSiteId('4057');
-    setFlows(SAMPLE_FLOWS.map(String));
-    setIntervalIndex(32);
-    setDayOfWeek(1); // Tuesday
+  const loadSample = async () => {
     setError('');
     setResult(null);
+
+    const parsedSiteId = Number(siteId);
+    if (!Number.isInteger(parsedSiteId) || parsedSiteId < 0) {
+      setError('Enter a valid SCATS site id before loading sample data.');
+      return;
+    }
+
+    try {
+      const rowsBySite = await getSampleDataset();
+      const siteRows = rowsBySite.get(parsedSiteId);
+      if (!siteRows || siteRows.length === 0) {
+        setError(`No sample rows found for SCATS site ${parsedSiteId} in CSV.`);
+        return;
+      }
+
+      const matchingSequences = [];
+      for (let i = 0; i < siteRows.length; i++) {
+        const row = siteRows[i];
+        if (row.dayOfWeek !== dayOfWeek) continue;
+
+        const prevDayRow = intervalIndex < LOOKBACK - 1
+          ? findPreviousDayRow(siteRows, i)
+          : null;
+
+        const sequence = extractLookbackSequence(row, prevDayRow, intervalIndex);
+        if (sequence) {
+          matchingSequences.push(sequence);
+        }
+      }
+
+      if (matchingSequences.length === 0) {
+        setError(
+          `No valid 12-interval sequence found for site ${parsedSiteId}, ${DAYS[dayOfWeek]}, ${INTERVAL_LABELS[intervalIndex]}.`
+        );
+        return;
+      }
+
+      const randomIdx = Math.floor(Math.random() * matchingSequences.length);
+      const selectedSequence = matchingSequences[randomIdx];
+      setFlows(selectedSequence.map(v => String(v)));
+    } catch (e) {
+      setError(`Could not load sample data from CSV: ${e.message}`);
+    }
   };
 
   // ── Clear all ──

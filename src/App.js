@@ -23,16 +23,16 @@ export default function App() {
           <nav className="shell-nav" aria-label="Primary">
             <NavLink
               to="/"
+              className={({ isActive }) => `shell-link ${isActive ? "active" : ""}`}
+            >
+              Map Explorer
+            </NavLink>
+            <NavLink
+              to="/predictor"
               end
               className={({ isActive }) => `shell-link ${isActive ? "active" : ""}`}
             >
               Predictor
-            </NavLink>
-            <NavLink
-              to="/map"
-              className={({ isActive }) => `shell-link ${isActive ? "active" : ""}`}
-            >
-              Map Explorer
             </NavLink>
             <NavLink
               to="/about"
@@ -51,8 +51,8 @@ export default function App() {
 
         <main className="shell-content">
           <Routes>
-            <Route path="/" element={<Predictor />} />
-            <Route path="/map" element={<Map />} />
+            <Route path="/" element={<Map />} />
+            <Route path="/predictor" element={<Predictor />} />
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
           </Routes>
