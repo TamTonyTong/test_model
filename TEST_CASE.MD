@@ -148,7 +148,8 @@ This document defines 12 functional and robustness test scenarios for the map ro
 - Chosen nodes are in disconnected graph components.
 
 **Steps**
-1. Select origin/destination known to be disconnected.
+1. Set Origin to `32761`.
+2. Set Destination to `5668`.
 2. Click **Find Top 5 Paths**.
 
 **Expected**
@@ -180,9 +181,12 @@ This document defines 12 functional and robustness test scenarios for the map ro
 - Switch model sequence: `CNN-LSTM` -> `GRU` -> `LSTM`.
 
 **Steps**
-1. Compute route with `CNN-LSTM`.
-2. Switch to `GRU` and recompute.
-3. Switch to `LSTM` and recompute.
+1. Set Origin to `33485`.
+2. Set Destination to `32758`.
+3. Compute route with `CNN-LSTM`.
+4. Switch to `GRU` and recompute.
+5. Switch to `LSTM` and recompute.
+6. Switch to `LSTM-GRU` and recompute.
 
 **Expected**
 - Flow cache is cleared on model change.
