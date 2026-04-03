@@ -1,7 +1,7 @@
 # Test Cases for Map Routing and Prediction
 
 ## Scope
-This document defines 12 functional and robustness test scenarios for the map routing flow in the React frontend and Flask prediction backend integration.
+This document defines 10 functional and robustness test scenarios for the map routing flow in the React frontend and Flask prediction backend integration.
 
 ## Preconditions
 - Frontend app is running.
