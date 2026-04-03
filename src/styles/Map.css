@@ -249,8 +249,8 @@
 
 .map-legend {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: 4em;
+  bottom: 2em;
   z-index: 850;
   display: grid;
   gap: 6px;
@@ -415,8 +415,8 @@
   }
 
   .map-legend {
-    right: 8px;
-    bottom: 8px;
+    right: 4em;
+    bottom: 2em;
     min-width: 145px;
     font-size: 0.72rem;
   }
