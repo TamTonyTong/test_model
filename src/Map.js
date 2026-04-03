@@ -196,15 +196,6 @@ export default function MapPage() {
             .slice(0, 20);
     }, [sites, destinationInput, origin]);
 
-    useEffect(() => {
-        setOriginInput(origin == null ? "" : String(origin));
-    }, [origin]);
-
-    useEffect(() => {
-        const destination = destinations[0];
-        setDestinationInput(destination == null ? "" : String(destination));
-    }, [destinations]);
-
     const edgesById = useMemo(() => {
         const neighborsById = buildRoadBasedNeighborMap(sites);
         const undirectedEdgeSet = new Set();
@@ -418,6 +409,7 @@ export default function MapPage() {
     const handleNodeClick = (siteId) => {
         if (!origin) {
             setOrigin(siteId);
+            setOriginInput(String(siteId));
             setPaths([]);
             setPathDetails([]);
             return;
@@ -425,12 +417,14 @@ export default function MapPage() {
 
         if (origin === siteId) {
             setOrigin(null);
+            setOriginInput("");
             setPaths([]);
             setPathDetails([]);
             return;
         }
 
         setDestinations([siteId]);
+        setDestinationInput(String(siteId));
         setPaths([]);
         setPathDetails([]);
     };
