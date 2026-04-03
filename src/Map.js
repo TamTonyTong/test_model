@@ -25,6 +25,12 @@ import {
 import "./styles/Map.css";
 
 const API_PREDICT = "http://127.0.0.1:5000/predict";
+const MODEL_OPTIONS = [
+    { value: "CNN-LSTM", label: "CNN-LSTM" },
+    { value: "GRU", label: "GRU" },
+    { value: "LSTM", label: "LSTM" },
+    { value: "LSTM-GRU", label: "LSTM-GRU" },
+];
 
 const MAX_NODES = 5000;
 const FLOW_FETCH_CONCURRENCY = 18;
@@ -41,6 +47,7 @@ export default function MapPage() {
     const [destinations, setDestinations] = useState([]);
     const [originInput, setOriginInput] = useState("");
     const [destinationInput, setDestinationInput] = useState("");
+    const [selectedModel, setSelectedModel] = useState("CNN-LSTM");
     const [originOpen, setOriginOpen] = useState(false);
     const [destinationOpen, setDestinationOpen] = useState(false);
     const [paths, setPaths] = useState([]);
@@ -77,6 +84,12 @@ export default function MapPage() {
             });
     }, []);
 
+    useEffect(() => {
+        flowCacheRef.current.clear();
+        setPaths([]);
+        setPathDetails([]);
+    }, [selectedModel]);
+
     const getFlow = async (nodeId) => {
         if (flowCacheRef.current.has(nodeId)) {
             return flowCacheRef.current.get(nodeId);
@@ -90,7 +103,8 @@ export default function MapPage() {
                 flows: SAMPLE_FLOWS.map(v => v + ((scatsSiteId ?? nodeId) % 10) * 5),
                 interval_index: 32,
                 day_of_week: 1,
-                is_weekend: false
+                is_weekend: false,
+                model: selectedModel
             };
 
             if (scatsSiteId !== undefined) {
@@ -542,6 +556,24 @@ export default function MapPage() {
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    <div>
+                        <label className="map-label" htmlFor="model-select">
+                            Model {selectedModel && <span className="map-ok">active</span>}
+                        </label>
+                        <select
+                            className="map-select"
+                            id="model-select"
+                            value={selectedModel}
+                            onChange={e => setSelectedModel(e.target.value)}
+                        >
+                            {MODEL_OPTIONS.map(option => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
                     </div>
                 </div>
 
