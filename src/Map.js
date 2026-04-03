@@ -574,22 +574,30 @@ export default function MapPage() {
 
             <section className="map-canvas-wrap">
                 <div className="map-summary">
-                    <span>
-                        Nodes: <b>{sites.length}</b>
-                    </span>
-                    <span>
-                        Candidate edges: <b>{edgesById.length}</b>
-                    </span>
-                    <span>
-                        Best route (est): <b>{selectedPathDuration ? formatTravelTime(parseFloat(selectedPathDuration)) : "-"}</b>
-                    </span>
+                    <div className="map-summary-metrics">
+                        <span className="map-summary-metric map-summary-metric-nodes">
+                            Nodes: <b>{sites.length}</b>
+                        </span>
+                        <span className="map-summary-metric map-summary-metric-edges">
+                            Candidate edges: <b>{edgesById.length}</b>
+                        </span>
+                        <span className="map-summary-metric map-summary-metric-route">
+                            Best route (est): <b>{selectedPathDuration ? formatTravelTime(parseFloat(selectedPathDuration)) : "-"}</b>
+                        </span>
+                    </div>
                     {pathDetails.length > 0 && (
                         <div className="path-times-summary">
                             <div className="path-times-header">Route Times (sorted):</div>
                             <div className="path-times-list">
                                 {pathDetails.map((pathDetail, idx) => (
                                     <div key={idx} className="path-time-item">
-                                        <span className="path-number">Route {idx + 1}:</span>
+                                        <span className="path-route-label">
+                                            <i
+                                                className="path-color-chip"
+                                                style={{ backgroundColor: PATH_COLORS[idx % PATH_COLORS.length] }}
+                                            />
+                                            <span className="path-number">Route {idx + 1}:</span>
+                                        </span>
                                         <span className="path-time">{formatTravelTime(pathDetail.totalTime)}</span>
                                     </div>
                                 ))}
