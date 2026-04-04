@@ -1,4 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Line,
+    LineChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis
+} from "recharts";
 import "./styles/Visualize.css";
 
 const MODEL_VISUALIZE_CONFIG = [
@@ -46,6 +57,23 @@ const MODEL_VISUALIZE_CONFIG = [
 ];
 
 const DEFAULT_MODEL_KEY = MODEL_VISUALIZE_CONFIG[0].key;
+
+const HISTORY_SERIES_CONFIG = [
+    { key: "loss", label: "Loss", color: "#38bdf8", axis: "left" },
+    { key: "mae", label: "MAE", color: "#22c55e", axis: "left" },
+    { key: "rmse", label: "RMSE", color: "#f59e0b", axis: "left" },
+    { key: "val_loss", label: "Val Loss", color: "#6366f1", axis: "left" },
+    { key: "val_mae", label: "Val MAE", color: "#a78bfa", axis: "left" },
+    { key: "val_rmse", label: "Val RMSE", color: "#f43f5e", axis: "left" },
+    { key: "learning_rate", label: "Learning Rate", color: "#f97316", axis: "right" }
+];
+
+const SITE_SERIES_CONFIG = [
+    { key: "r2", label: "R2", color: "#22c55e" },
+    { key: "rmse", label: "RMSE", color: "#38bdf8" },
+    { key: "mae", label: "MAE", color: "#a78bfa" },
+    { key: "mape", label: "MAPE (%)", color: "#f97316" }
+];
 
 function parseCsvLine(line) {
     const values = [];
@@ -116,13 +144,25 @@ function formatValue(value, digits = 4) {
     return value.toFixed(digits);
 }
 
-function formatPercent(value) {
+function formatHistoryValue(metricKey, value) {
     if (!Number.isFinite(value)) return "N/A";
-    return `${value.toFixed(2)}%`;
+    if (metricKey === "learning_rate") {
+        return value.toExponential(2);
+    }
+    return value.toFixed(5);
+}
+
+function formatSiteMetricValue(metricKey, value) {
+    if (!Number.isFinite(value)) return "N/A";
+    if (metricKey === "mape") return `${value.toFixed(2)}%`;
+    if (metricKey === "r2") return value.toFixed(4);
+    return value.toFixed(5);
 }
 
 export default function Visualize() {
     const [selectedModelKey, setSelectedModelKey] = useState(DEFAULT_MODEL_KEY);
+    const [activeHistoryMetric, setActiveHistoryMetric] = useState("loss");
+    const [activeSiteMetric, setActiveSiteMetric] = useState("r2");
     const [historyRows, setHistoryRows] = useState([]);
     const [siteRows, setSiteRows] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -251,17 +291,58 @@ export default function Visualize() {
         };
     }, [siteRows]);
 
-    const recentEpochRows = useMemo(() => {
-        if (historyRows.length === 0) {
-            return [];
-        }
-
-        const startIndex = Math.max(0, historyRows.length - 8);
-        return historyRows.slice(startIndex).map((row, idx) => ({
-            epoch: startIndex + idx + 1,
+    const historyChartRows = useMemo(() => {
+        return historyRows.map((row, idx) => ({
+            epoch: idx + 1,
             ...row
         }));
     }, [historyRows]);
+
+    const latestHistoryValues = useMemo(() => {
+        if (historyRows.length === 0) {
+            return null;
+        }
+        return historyRows[historyRows.length - 1];
+    }, [historyRows]);
+
+    const topSitesByR2 = useMemo(() => {
+        return siteRows
+            .filter(row => Number.isFinite(row.r2) && row.site !== null && row.site !== undefined && row.site !== "")
+            .sort((a, b) => b.r2 - a.r2)
+            .slice(0, 20)
+            .map(row => ({
+                site: String(row.site),
+                rmse: row.rmse,
+                mae: row.mae,
+                mape: row.mape,
+                r2: row.r2
+            }));
+    }, [siteRows]);
+
+    const topSiteMetricAverages = useMemo(() => {
+        if (topSitesByR2.length === 0) {
+            return null;
+        }
+
+        const calculateAverage = key => {
+            const values = topSitesByR2
+                .map(row => row[key])
+                .filter(value => Number.isFinite(value));
+
+            if (values.length === 0) {
+                return null;
+            }
+
+            return values.reduce((sum, value) => sum + value, 0) / values.length;
+        };
+
+        return {
+            r2: calculateAverage("r2"),
+            rmse: calculateAverage("rmse"),
+            mae: calculateAverage("mae"),
+            mape: calculateAverage("mape")
+        };
+    }, [topSitesByR2]);
 
     return (
         <div className="app visualize-page">
@@ -319,52 +400,102 @@ export default function Visualize() {
                                     </article>
                                 </div>
 
-                                <div className="visualize-table-wrap">
-                                    <table className="visualize-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Epoch</th>
-                                                <th>Loss</th>
-                                                <th>RMSE</th>
-                                                <th>Val Loss</th>
-                                                <th>Val RMSE</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {recentEpochRows.map(row => (
-                                                <tr key={row.epoch}>
-                                                    <td>{row.epoch}</td>
-                                                    <td>{formatValue(row.loss, 5)}</td>
-                                                    <td>{formatValue(row.rmse, 5)}</td>
-                                                    <td>{formatValue(row.val_loss, 5)}</td>
-                                                    <td>{formatValue(row.val_rmse, 5)}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                <div className="visualize-history-head">
+                                    <div>
+                                        <p className="visualize-history-title">Interactive Training History</p>
+                                        <p className="visualize-history-subtitle">
+                                            Epoch is used as the x-axis row index for all metrics.
+                                        </p>
+                                    </div>
+
+                                    <div className="visualize-history-toggle-grid">
+                                        {HISTORY_SERIES_CONFIG.map(series => (
+                                            <button
+                                                key={series.key}
+                                                type="button"
+                                                className="visualize-history-toggle"
+                                                data-active={activeHistoryMetric === series.key}
+                                                onClick={() => setActiveHistoryMetric(series.key)}
+                                            >
+                                                <span className="visualize-history-toggle-label">{series.label}</span>
+                                                <span className="visualize-history-toggle-value">
+                                                    {formatHistoryValue(series.key, latestHistoryValues?.[series.key])}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
+
+                                <div className="visualize-history-chart-wrap">
+                                    <ResponsiveContainer width="100%" height={280}>
+                                        <LineChart
+                                            data={historyChartRows}
+                                            margin={{ left: 10, right: 14, top: 8, bottom: 4 }}
+                                        >
+                                            <CartesianGrid vertical={false} stroke="rgba(148, 163, 184, 0.22)" />
+                                            <XAxis
+                                                dataKey="epoch"
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tickMargin={8}
+                                                minTickGap={24}
+                                                stroke="#94a3b8"
+                                            />
+                                            <YAxis
+                                                yAxisId="left"
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tickMargin={8}
+                                                stroke="#94a3b8"
+                                                width={66}
+                                                tickFormatter={value => Number(value).toFixed(3)}
+                                            />
+                                            <YAxis
+                                                yAxisId="right"
+                                                orientation="right"
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tickMargin={8}
+                                                stroke="#f97316"
+                                                width={78}
+                                                tickFormatter={value => Number(value).toExponential(1)}
+                                            />
+                                            <Tooltip
+                                                contentStyle={{
+                                                    background: "#0f172a",
+                                                    borderColor: "rgba(148, 163, 184, 0.35)",
+                                                    borderRadius: "10px",
+                                                    color: "#e2e8f0"
+                                                }}
+                                                labelFormatter={value => `Epoch ${value}`}
+                                                formatter={(value, name) => [
+                                                    formatHistoryValue(name, Number(value)),
+                                                    HISTORY_SERIES_CONFIG.find(series => series.key === name)?.label || name
+                                                ]}
+                                            />
+                                            {HISTORY_SERIES_CONFIG.map(series => (
+                                                <Line
+                                                    key={series.key}
+                                                    yAxisId={series.axis}
+                                                    type="monotone"
+                                                    dataKey={series.key}
+                                                    stroke={series.color}
+                                                    strokeWidth={activeHistoryMetric === series.key ? 2.6 : 1.6}
+                                                    strokeOpacity={activeHistoryMetric === series.key ? 1 : 0.28}
+                                                    dot={false}
+                                                    isAnimationActive={false}
+                                                />
+                                            ))}
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </div>
+
                             </>
                         )}
                     </section>
                 </div>
 
-                <div className="visualize-column">
-                    <section className="card visualize-panel">
-                        <div className="card-title">Training Plots</div>
-                        <div className="visualize-image-grid">
-                            {selectedModel.imageFiles.map(image => (
-                                <figure key={image.file} className="visualize-image-card">
-                                    <img
-                                        src={`/modelVisualize/${selectedModel.folder}/${image.file}`}
-                                        alt={`${selectedModel.label} ${image.title}`}
-                                        loading="lazy"
-                                    />
-                                    <figcaption>{image.title}</figcaption>
-                                </figure>
-                            ))}
-                        </div>
-                    </section>
-
+                <div className="visualize-column visualize-column-right">       
                     <section className="card visualize-panel">
                         <div className="card-title">Per-Site Evaluation</div>
                         {!siteSummary ? (
@@ -390,35 +521,92 @@ export default function Visualize() {
                                     </article>
                                 </div>
 
-                                <div className="visualize-table-wrap">
-                                    <table className="visualize-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Site</th>
-                                                <th>RMSE</th>
-                                                <th>MAE</th>
-                                                <th>MAPE</th>
-                                                <th>R2</th>
-                                                <th>Samples</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {siteSummary.topRows.map(row => (
-                                                <tr key={`${row.site}-${row.rmse}`}>
-                                                    <td>{row.site || "N/A"}</td>
-                                                    <td>{formatValue(row.rmse, 5)}</td>
-                                                    <td>{formatValue(row.mae, 5)}</td>
-                                                    <td>{formatPercent(row.mape)}</td>
-                                                    <td>{formatValue(row.r2, 4)}</td>
-                                                    <td>{Number.isFinite(row.samples) ? row.samples : "N/A"}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                            </>
+                        )}
+
+                        {/* <div className="card-title"></div> */}
+                        {topSitesByR2.length === 0 ? (
+                            <div className="visualize-placeholder">No valid R2 values available for top-site comparison.</div>
+                        ) : (
+                            <>
+                                <div className="visualize-history-head">
+                                    <div>
+                                        <p className="visualize-history-title">Interactive Per-Site Metric Chart</p>
+                                        <p className="visualize-history-subtitle">
+                                            Top 20 rows ranked by R2 across the selected model dataset.
+                                        </p>
+                                    </div>
+
+                                    <div className="visualize-history-toggle-grid">
+                                        {SITE_SERIES_CONFIG.map(series => (
+                                            <button
+                                                key={series.key}
+                                                type="button"
+                                                className="visualize-history-toggle"
+                                                data-active={activeSiteMetric === series.key}
+                                                onClick={() => setActiveSiteMetric(series.key)}
+                                            >
+                                                <span className="visualize-history-toggle-label">{series.label}</span>
+                                                <span className="visualize-history-toggle-value">
+                                                    {formatSiteMetricValue(series.key, topSiteMetricAverages?.[series.key])}
+                                                </span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="visualize-history-chart-wrap">
+                                    <ResponsiveContainer width="100%" height={280}>
+                                        <BarChart
+                                            data={topSitesByR2}
+                                            margin={{ left: 10, right: 10, top: 8, bottom: 8 }}
+                                        >
+                                            <CartesianGrid vertical={false} stroke="rgba(148, 163, 184, 0.22)" />
+                                            <XAxis
+                                                dataKey="site"
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tickMargin={8}
+                                                interval={0}
+                                                angle={-35}
+                                                textAnchor="end"
+                                                height={66}
+                                                stroke="#94a3b8"
+                                            />
+                                            <YAxis
+                                                tickLine={false}
+                                                axisLine={false}
+                                                tickMargin={8}
+                                                stroke="#94a3b8"
+                                                width={68}
+                                                tickFormatter={value => formatSiteMetricValue(activeSiteMetric, Number(value))}
+                                            />
+                                            <Tooltip
+                                                contentStyle={{
+                                                    background: "#0f172a",
+                                                    borderColor: "rgba(148, 163, 184, 0.35)",
+                                                    borderRadius: "10px",
+                                                    color: "#e2e8f0"
+                                                }}
+                                                labelFormatter={value => `Site ${value}`}
+                                                formatter={(value, name) => [
+                                                    formatSiteMetricValue(name, Number(value)),
+                                                    SITE_SERIES_CONFIG.find(series => series.key === name)?.label || name
+                                                ]}
+                                            />
+                                            <Bar
+                                                dataKey={activeSiteMetric}
+                                                fill={SITE_SERIES_CONFIG.find(series => series.key === activeSiteMetric)?.color || "#38bdf8"}
+                                                radius={[4, 4, 0, 0]}
+                                            />
+                                        </BarChart>
+                                    </ResponsiveContainer>
                                 </div>
                             </>
                         )}
                     </section>
+
+                    
                 </div>
             </main>
         </div>

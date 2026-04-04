@@ -16,6 +16,8 @@
     gap: 20px;
 }
 
+
+
 .visualize-panel {
     border: 1px solid rgba(59, 130, 246, 0.2);
 }
@@ -86,6 +88,73 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 1.02rem;
     color: #f8fafc;
+}
+
+.visualize-history-head {
+    margin-bottom: 12px;
+}
+
+.visualize-history-title {
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.visualize-history-subtitle {
+    margin-top: 4px;
+    margin-bottom: 10px;
+    font-size: 0.76rem;
+    color: #94a3b8;
+}
+
+.visualize-history-toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.visualize-history-toggle {
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.54);
+    padding: 8px 9px;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
+}
+
+.visualize-history-toggle:hover {
+    transform: translateY(-1px);
+    border-color: rgba(96, 165, 250, 0.55);
+}
+
+.visualize-history-toggle[data-active="true"] {
+    border-color: rgba(56, 189, 248, 0.72);
+    background: linear-gradient(140deg, rgba(14, 116, 144, 0.4), rgba(30, 64, 175, 0.32));
+}
+
+.visualize-history-toggle-label {
+    display: block;
+    font-size: 0.65rem;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #93c5fd;
+}
+
+.visualize-history-toggle-value {
+    display: block;
+    margin-top: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.84rem;
+    color: #f8fafc;
+}
+
+.visualize-history-chart-wrap {
+    margin-bottom: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    padding: 10px 8px 4px;
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.74), rgba(2, 6, 23, 0.86));
 }
 
 .visualize-image-grid {
@@ -168,8 +237,18 @@
     }
 }
 
+@media (max-width: 760px) {
+    .visualize-history-toggle-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (max-width: 560px) {
     .visualize-metric-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .visualize-history-toggle-grid {
         grid-template-columns: 1fr;
     }
 }
