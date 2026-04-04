@@ -1,6 +1,6 @@
 """
 TBRGS Flask Backend
-Serves trained traffic models (CNN-LSTM, LSTM, GRU, LSTM-GRU) for traffic flow prediction.
+Serves the trained CNN-LSTM model for traffic flow prediction.
 
 Endpoints:
   POST /predict   - accepts 12 recent flow readings + datetime context, returns predicted flow & travel metrics
@@ -10,7 +10,6 @@ Endpoints:
 
 import os
 import math
-from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 from flask import Flask, request, jsonify
@@ -18,9 +17,6 @@ from flask_cors import CORS
 from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
 
-# ──────────────────────────────────────────────
-# Config
-# ──────────────────────────────────────────────
 BACKEND_DIR    = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR    = os.path.dirname(BACKEND_DIR)
 MODEL_DIR      = os.path.join(PROJECT_DIR, "model")
@@ -30,39 +26,61 @@ LOOKBACK       = 12        # number of 15-min intervals used as input
 SPEED_LIMIT    = 60        # km/h
 INTERSECTION_DELAY = 0.5  # minutes (30 seconds)
 
-MODEL_FILE_CANDIDATES = {
-    "cnn-lstm": [
-        os.path.join(MODEL_DIR, "cnn_lstm", "tbrgs_cnn_lstm_global_best.keras"),
-        os.path.join(MODEL_DIR, "tbrgs_cnn_lstm_global_best.keras"),
-    ],
-    "lstm": [
-        os.path.join(MODEL_DIR, "lstm", "tbrgs_lstm_global_best.keras"),
-        os.path.join(MODEL_DIR, "tbrgs_lstm_global_best.keras"),
-    ],
-    "gru": [
-        os.path.join(MODEL_DIR, "gru", "tbrgs_gru_global_best.keras"),
-        os.path.join(MODEL_DIR, "tbrgs_gru_global_best.keras"),
-    ],
-    "lstm-gru": [
-        os.path.join(MODEL_DIR, "lstm_gru", "tbrgs_lstm_gru_global_best.keras"),
-        os.path.join(MODEL_DIR, "tbrgs_lstm_gru_global_best.keras"),
-    ],
+MODEL_REGISTRY = {
+    "cnn_lstm": {
+        "label": "CNN-LSTM",
+        "file_name": "tbrgs_cnn_lstm_global_best.keras",
+    },
+    "gru": {
+        "label": "GRU",
+        "file_name": "tbrgs_gru_global_best.keras",
+    },
+    "lstm": {
+        "label": "LSTM",
+        "file_name": "tbrgs_lstm_global_best.keras",
+    },
+    "lstm_gru": {
+        "label": "LSTM-GRU",
+        "file_name": "tbrgs_lstm_gru_global_best.keras",
+    },
 }
 
 MODEL_ALIASES = {
-    "cnnlstm": "cnn-lstm",
-    "cnn-lstm": "cnn-lstm",
-    "cnn_lstm": "cnn-lstm",
-    "lstm": "lstm",
+    "cnn-lstm": "cnn_lstm",
+    "cnn_lstm": "cnn_lstm",
+    "cnnlstm": "cnn_lstm",
     "gru": "gru",
-    "lstmgru": "lstm-gru",
-    "lstm-gru": "lstm-gru",
-    "lstm_gru": "lstm-gru",
-    "lstm-gru hybrid": "lstm-gru",
-    "hybrid": "lstm-gru",
+    "lstm": "lstm",
+    "lstm-gru": "lstm_gru",
+    "lstm_gru": "lstm_gru",
+    "lstmgru": "lstm_gru",
 }
 
-DEFAULT_MODEL_KEY = "cnn-lstm"
+
+def normalize_model_key(raw_value):
+    if raw_value is None:
+        return "cnn_lstm"
+    key = str(raw_value).strip().lower().replace(" ", "_")
+    return MODEL_ALIASES.get(key, key)
+
+
+def get_model_path(model_key):
+    model_config = MODEL_REGISTRY[model_key]
+    return os.path.join(MODEL_DIR, model_config["file_name"])
+
+
+def load_model_for_key(model_key):
+    model_path = get_model_path(model_key)
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found: {model_path}")
+    loaded_model = tf.keras.models.load_model(model_path)
+    return loaded_model, model_path
+
+
+DEFAULT_MODEL_KEY = normalize_model_key(os.getenv("MODEL_NAME") or os.getenv("MODEL_KEY") or "cnn_lstm")
+if DEFAULT_MODEL_KEY not in MODEL_REGISTRY:
+    available_models = ", ".join(sorted(MODEL_REGISTRY))
+    raise ValueError(f"Unknown default model '{DEFAULT_MODEL_KEY}'. Available models: {available_models}")
 
 # Flow→speed quadratic params  (flow = a*speed² + b*speed)
 A_QUAD = -1.4648375
@@ -84,80 +102,14 @@ FLOW_AT_35_KMH = A_QUAD * 35**2 + B_QUAD * 35
 app = Flask(__name__)
 CORS(app)
 
-# ──────────────────────────────────────────────
 # Load model + fit scaler at startup
-# ──────────────────────────────────────────────
-def normalize_model_name(name):
-    """Normalize UI/API model names to a canonical model key."""
-    if name is None:
-        return DEFAULT_MODEL_KEY
-    text = str(name).strip().lower()
-    if not text:
-        return DEFAULT_MODEL_KEY
-    return MODEL_ALIASES.get(text, text)
-
-
-def resolve_model_file(model_key):
-    """Return the first existing file from candidates for a model key, else None."""
-    candidates = MODEL_FILE_CANDIDATES.get(model_key, [])
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    return None
-
-
-def load_available_models():
-    """Load all available models at startup."""
-    loaded = {}
-    print("Loading models …")
-    for model_key in MODEL_FILE_CANDIDATES:
-        model_path = resolve_model_file(model_key)
-        if model_path is None:
-            print(f"  WARNING: No model file found for '{model_key}'")
-            continue
-        try:
-            model_obj = tf.keras.models.load_model(model_path)
-            loaded[model_key] = {
-                "key": model_key,
-                "path": model_path,
-                "model": model_obj,
-            }
-            print(f"  Loaded '{model_key}' from: {model_path}")
-        except Exception as e:
-            print(f"  WARNING: Failed to load '{model_key}' from {model_path}: {e}")
-
-    if DEFAULT_MODEL_KEY not in loaded and loaded:
-        fallback_key = next(iter(loaded))
-        print(f"  WARNING: Default model not available. Falling back to '{fallback_key}'")
-        return loaded, fallback_key
-
-    return loaded, DEFAULT_MODEL_KEY
-
-
-LOADED_MODELS, ACTIVE_DEFAULT_MODEL_KEY = load_available_models()
-if not LOADED_MODELS:
-    raise RuntimeError("No valid model files were loaded. Check the model/ directory.")
-
-
-def get_model_entry(requested_model_name):
-    """Resolve and return model entry; returns (entry, canonical_key, error_response)."""
-    model_key = normalize_model_name(requested_model_name)
-    model_entry = LOADED_MODELS.get(model_key)
-    if model_entry is None:
-        available = sorted(LOADED_MODELS.keys())
-        err = jsonify({
-            "error": f"Unknown model '{requested_model_name}'.",
-            "available_models": available,
-        })
-        return None, model_key, (err, 400)
-    return model_entry, model_key, None
-
-
-def require_model_entry(model_entry: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Narrow optional model entries for static analysis after explicit checks."""
-    if model_entry is None:
-        raise ValueError("Model entry is required")
-    return model_entry
+print("Loading model …")
+MODEL_CACHE = {}
+model, MODEL_PATH = load_model_for_key(DEFAULT_MODEL_KEY)
+MODEL_CACHE[DEFAULT_MODEL_KEY] = model
+print(f"  Model loaded from: {MODEL_PATH}")
+print(f"  Active model key: {DEFAULT_MODEL_KEY}")
+print(f"  Input shape: {model.input_shape}")
 
 print("Refitting MinMaxScaler from dataset …")
 SITE_SCALERS = {}
@@ -189,7 +141,7 @@ try:
     df_long.dropna(subset=[site_col], inplace=True)
     df_long = df_long[df_long["flow"] >= 0].copy()
 
-    flow_values = pd.to_numeric(df_long["flow"], errors="coerce").to_numpy(dtype=np.float64).reshape(-1, 1)
+    flow_values = df_long["flow"].values.reshape(-1, 1)
     if len(flow_values) == 0:
         raise ValueError("No valid flow rows found after cleaning")
 
@@ -198,15 +150,12 @@ try:
 
     # Build site-specific scalers so each site can be normalized similarly to training.
     for sid, grp in df_long.groupby(site_col):
-        site_flows = pd.to_numeric(grp["flow"], errors="coerce").to_numpy(dtype=np.float64).reshape(-1, 1)
+        site_flows = grp["flow"].values.reshape(-1, 1)
         if len(site_flows) == 0:
             continue
         site_scaler = MinMaxScaler()
         site_scaler.fit(site_flows)
-        sid_arr = pd.to_numeric(pd.Series([sid]), errors="coerce").to_numpy(dtype=np.float64)
-        if sid_arr.size == 0 or np.isnan(sid_arr[0]):
-            continue
-        sid_int = int(sid_arr[0].item())
+        sid_int = int(sid)
         SITE_SCALERS[sid_int] = site_scaler
         KNOWN_SITE_IDS.add(sid_int)
 
@@ -223,10 +172,7 @@ except Exception as e:
     KNOWN_SITE_IDS = set()
     SCALER_READY = False
 
-
-# ──────────────────────────────────────────────
 # Helper: cyclical encoding
-# ──────────────────────────────────────────────
 def cyclic(val, max_val):
     """Return (sin, cos) cyclical encoding."""
     angle = 2 * math.pi * val / max_val
@@ -248,6 +194,17 @@ def parse_bool(value, default=False):
         if txt in {"false", "0", "no", "n", "off"}:
             return False
     return default
+
+
+def parse_model_key(raw_value, default_key=DEFAULT_MODEL_KEY):
+    if raw_value is None:
+        return default_key
+
+    model_key = normalize_model_key(raw_value)
+    if model_key not in MODEL_REGISTRY:
+        available_models = ", ".join(sorted(MODEL_REGISTRY))
+        raise ValueError(f"Unknown model '{raw_value}'. Available models: {available_models}")
+    return model_key
 
 
 def build_feature_vector(flow_seq, interval_index, day_of_week, is_weekend, flow_scaler):
@@ -317,8 +274,8 @@ def travel_time(distance_km, speed_kmh, num_intersections=1):
 def health():
     return jsonify({
         "status": "ok",
-        "default_model": ACTIVE_DEFAULT_MODEL_KEY,
-        "models": sorted(LOADED_MODELS.keys()),
+        "model": MODEL_PATH,
+        "model_key": DEFAULT_MODEL_KEY,
         "scaler_ready": SCALER_READY,
         "known_sites": len(KNOWN_SITE_IDS),
     })
@@ -327,24 +284,38 @@ def health():
 @app.route("/model-info", methods=["GET"])
 def model_info():
     requested_model = request.args.get("model")
-    model_entry, model_key, error_resp = get_model_entry(requested_model)
-    if error_resp is not None:
-        return error_resp
-    model_entry = require_model_entry(model_entry)
+    try:
+        info_model_key = parse_model_key(requested_model)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
 
-    selected_model = model_entry["model"]
-    layers = [{"name": l.name, "type": l.__class__.__name__} for l in selected_model.layers]
+    info_model = MODEL_CACHE.get(info_model_key)
+    if info_model is None:
+        info_model, _ = load_model_for_key(info_model_key)
+        MODEL_CACHE[info_model_key] = info_model
+
+    info_model_path = get_model_path(info_model_key)
+    layers = [{"name": l.name, "type": l.__class__.__name__} for l in info_model.layers]
     return jsonify({
-        "model_key": model_key,
-        "model_file": os.path.basename(model_entry["path"]),
+        "model_file": os.path.basename(info_model_path),
+        "model_key": info_model_key,
+        "model_label": MODEL_REGISTRY[info_model_key]["label"],
+        "available_models": [
+            {
+                "key": key,
+                "label": config["label"],
+                "file_name": config["file_name"],
+                "exists": os.path.exists(os.path.join(MODEL_DIR, config["file_name"])),
+            }
+            for key, config in MODEL_REGISTRY.items()
+        ],
         "mode": "global-multi-site",
         "default_site_id": DEFAULT_SITE_ID,
-        "available_models": sorted(LOADED_MODELS.keys()),
         "known_sites": len(KNOWN_SITE_IDS),
         "lookback": LOOKBACK,
-        "input_shape": str(selected_model.input_shape),
-        "output_shape": str(selected_model.output_shape),
-        "total_params": selected_model.count_params(),
+        "input_shape": str(info_model.input_shape),
+        "output_shape": str(info_model.output_shape),
+        "total_params": info_model.count_params(),
         "layers": layers,
         "scaler_ready": SCALER_READY,
         "flow_capacity": FLOW_CAP,
@@ -382,12 +353,15 @@ def predict():
     """
     data = request.get_json(force=True)
 
-    requested_model = data.get("model", ACTIVE_DEFAULT_MODEL_KEY)
-    model_entry, model_key, error_resp = get_model_entry(requested_model)
-    if error_resp is not None:
-        return error_resp
-    model_entry = require_model_entry(model_entry)
-    selected_model = model_entry["model"]
+    try:
+        requested_model_key = parse_model_key(data.get("model"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    active_model = MODEL_CACHE.get(requested_model_key)
+    if active_model is None:
+        active_model, _ = load_model_for_key(requested_model_key)
+        MODEL_CACHE[requested_model_key] = active_model
 
     flows = data.get("flows")
     if not isinstance(flows, list) or len(flows) != LOOKBACK:
@@ -448,8 +422,8 @@ def predict():
     # Model expects (batch, lookback, features)
     X_input = X[np.newaxis, ...]   # shape: (1, 12, 6)
 
-    pred_scaled = selected_model.predict(X_input, verbose=0)[0][0]
-    pred_flow_interval = float(flow_scaler.inverse_transform(np.array([[pred_scaled]], dtype=np.float64))[0][0])
+    pred_scaled = active_model.predict(X_input, verbose=0)[0][0]
+    pred_flow_interval = float(flow_scaler.inverse_transform([[pred_scaled]])[0][0])
     pred_flow_interval = max(0.0, pred_flow_interval)
     pred_flow_hour = pred_flow_interval * 4  # 15-min → per hour
 
@@ -465,8 +439,6 @@ def predict():
         condition = "Free Flow"
 
     return jsonify({
-        "model_key":                   model_key,
-        "model_file":                  os.path.basename(model_entry["path"]),
         "predicted_flow_per_interval": round(pred_flow_interval, 2),
         "predicted_flow_per_hour":     round(pred_flow_hour, 2),
         "speed_kmh":                   speed,
@@ -475,6 +447,8 @@ def predict():
         "road_condition":              condition,
         "site_id":                     site_id,
         "scaler_scope":                scaler_scope,
+        "model_key":                   requested_model_key,
+        "model_label":                 MODEL_REGISTRY[requested_model_key]["label"],
         "input_flows":                 flows,
     })
 
