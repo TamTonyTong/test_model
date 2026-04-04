@@ -17,7 +17,7 @@ import PredictionChart from './components/PredictionChart';
 const API = 'http://127.0.0.1:5000';
 const LOOKBACK = 12;
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-const MODELS = ['CNN-LSTM', 'LSTM', 'GRU', 'LSTM-GRU Hybrid'];
+const MODELS = ['CNN-LSTM', 'LSTM', 'GRU', 'LSTM-GRU'];
 const SAMPLE_DATASET_URL = '/mapInfo/VSDATA_202603_Summed.csv';
 
 // Generate interval labels: 00:00, 00:15, … 23:45
