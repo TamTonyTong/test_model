@@ -150,7 +150,7 @@ http://localhost:5000
 Run frontend from project root in a second terminal:
 
 npm install
-npm install react-leaflet leaflet papaparse react-router-dom
+npm install react-leaflet leaflet papaparse react-router-dom recharts
 npm start
 
 Then open http://localhost:3000 and use:
