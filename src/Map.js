@@ -24,9 +24,19 @@ import {
 } from "./utils/mapRoutingUtils";
 import "./styles/Map.css";
 
-const API_BASES = ["http://127.0.0.1:5000", "http://localhost:5000"];
+const RUNTIME_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
+const RUNTIME_PROTOCOL = typeof window !== "undefined" && window.location.protocol === "https:"
+    ? "https:"
+    : "http:";
+const API_BASES = Array.from(new Set([
+    process.env.REACT_APP_API_BASE,
+    "http://127.0.0.1:5000",
+    `${RUNTIME_PROTOCOL}//${RUNTIME_HOST}:5000`,
+    "http://localhost:5000"
+].filter(Boolean)));
 const API_PREDICT_PATH = "/predict";
 const API_HEALTH_PATH = "/health";
+const API_TIMEOUT_MS = 2500;
 const MODEL_OPTIONS = [
     { value: "CNN-LSTM", label: "CNN-LSTM" },
     { value: "GRU", label: "GRU" },
@@ -40,6 +50,16 @@ const PATH_COLORS = ["#ef4444", "#0ea5e9", "#f59e0b", "#22c55e", "#8b5cf6"];
 const DEFAULT_CENTER = [-37.8136, 144.9631];
 const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 15;
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = API_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 // giả định capacity
 // const FLOW_CAPACITY = 1800;
@@ -65,7 +85,7 @@ export default function MapPage() {
     const checkBackendHealth = async () => {
         for (const baseUrl of API_BASES) {
             try {
-                const response = await fetch(`${baseUrl}${API_HEALTH_PATH}`, { method: "GET" });
+                const response = await fetchWithTimeout(`${baseUrl}${API_HEALTH_PATH}`, { method: "GET" });
                 if (response.ok) {
                     setBackendDisconnected(false);
                     return true;
@@ -145,7 +165,7 @@ export default function MapPage() {
             let lastError = null;
             for (const baseUrl of API_BASES) {
                 try {
-                    const res = await fetch(`${baseUrl}${API_PREDICT_PATH}`, {
+                    const res = await fetchWithTimeout(`${baseUrl}${API_PREDICT_PATH}`, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify(payload)

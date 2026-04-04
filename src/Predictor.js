@@ -13,8 +13,18 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './styles/App.css';
 import PredictionChart from './components/PredictionChart';
 
-// ── Constants ──────────────────────────────────────────────
-const API = 'http://127.0.0.1:5000';
+// Constants
+const RUNTIME_HOST = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+const RUNTIME_PROTOCOL = typeof window !== 'undefined' && window.location.protocol === 'https:'
+  ? 'https:'
+  : 'http:';
+const API_BASES = Array.from(new Set([
+  process.env.REACT_APP_API_BASE,
+  'http://127.0.0.1:5000',
+  `${RUNTIME_PROTOCOL}//${RUNTIME_HOST}:5000`,
+  'http://localhost:5000',
+].filter(Boolean)));
+const HEALTH_CHECK_TIMEOUT_MS = 1500;
 const LOOKBACK = 12;
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const MODELS = ['CNN-LSTM', 'LSTM', 'GRU', 'LSTM-GRU'];
@@ -33,7 +43,7 @@ function makeIntervalLabels() {
 const INTERVAL_LABELS = makeIntervalLabels();
 const INTERVAL_COLUMNS = Array.from({ length: 96 }, (_, i) => `V${String(i).padStart(2, '0')}`);
 
-// ── Helper ─────────────────────────────────────────────────
+// Helper
 function conditionClass(condition) {
   if (!condition) return '';
   return condition.toLowerCase().replace(' ', '-');
@@ -199,7 +209,17 @@ function getCurrentIntervalIndex() {
   return totalIntervalsFromMidnight % 96;
 }
 
-// ── Main Component ─────────────────────────────────────────
+async function fetchWithTimeout(url, options = {}, timeoutMs = HEALTH_CHECK_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Main Component
 export default function Predictor() {
   const sampleDatasetPromiseRef = useRef(null);
 
@@ -219,34 +239,67 @@ export default function Predictor() {
   const [modelInfo, setModelInfo] = useState(null);
   const [backendStatus, setBackendStatus] = useState('checking'); // 'ok' | 'error' | 'checking'
 
-  // ── Check backend health on mount ──
+  const findReachableBackend = useCallback(async () => {
+    for (const base of API_BASES) {
+      try {
+        const response = await fetchWithTimeout(`${base}/health`, { method: 'GET' });
+        if (response.ok) {
+          setBackendStatus('ok');
+          return base;
+        }
+      } catch {
+        // Try next host candidate.
+      }
+    }
+
+    setBackendStatus('error');
+    return null;
+  }, []);
+
+  // Check backend health on mount + periodic retry
   useEffect(() => {
-    fetch(`${API}/health`)
-      .then(r => r.json())
-      .then(() => {
-        setBackendStatus('ok');
-        // Also fetch model info for selected model
-        return fetch(`${API}/model-info?model=${encodeURIComponent(selectedModel)}`);
-      })
-      .then(r => r.json())
-      .then(info => {
+    const boot = async () => {
+      const reachableBase = await findReachableBackend();
+      if (!reachableBase) {
+        setModelInfo(null);
+      }
+    };
+
+    boot();
+    const intervalId = setInterval(boot, 15000);
+    return () => clearInterval(intervalId);
+  }, [findReachableBackend]);
+
+  // Fetch model info when selected model changes
+  useEffect(() => {
+    const fetchModelInfo = async () => {
+      const reachableBase = await findReachableBackend();
+      if (!reachableBase) {
+        setModelInfo(null);
+        return;
+      }
+
+      try {
+        const response = await fetch(`${reachableBase}/model-info?model=${encodeURIComponent(selectedModel)}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const info = await response.json();
         setModelInfo(info);
+
         if (info && Number.isInteger(info.default_site_id)) {
           setSiteId(String(info.default_site_id));
         }
-      })
-      .catch(() => setBackendStatus('error'));
-  }, [selectedModel]);
+      } catch {
+        setModelInfo(null);
+      }
+    };
 
-  // ── Fetch model info when selected model changes ──
-  useEffect(() => {
-    fetch(`${API}/model-info?model=${encodeURIComponent(selectedModel)}`)
-      .then(r => r.json())
-      .then(info => setModelInfo(info))
-      .catch(() => setModelInfo(null));
-  }, [selectedModel]);
+    fetchModelInfo();
+  }, [selectedModel, findReachableBackend]);
 
-  // ── Update interval index in real-time (every minute) ──
+  // Update interval index in real-time (every minute)
   useEffect(() => {
     setIntervalIndex(getCurrentIntervalIndex());
     const timer = setInterval(() => {
@@ -282,7 +335,7 @@ export default function Predictor() {
     return sampleDatasetPromiseRef.current;
   }, []);
 
-  // ── Fill with sample data ──
+  // ─ Fill with sample data
   const loadSample = async () => {
     setError('');
     setResult(null);
@@ -374,7 +427,12 @@ export default function Predictor() {
     };
 
     try {
-      const res = await fetch(`${API}/predict`, {
+      const reachableBase = await findReachableBackend();
+      if (!reachableBase) {
+        throw new Error(`Backend is unreachable. Tried: ${API_BASES.join(', ')}`);
+      }
+
+      const res = await fetch(`${reachableBase}/predict`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -632,7 +690,7 @@ export default function Predictor() {
             {!modelInfo ? (
               <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                 {backendStatus === 'error'
-                  ? '❌ Cannot reach backend. Start the Flask server first.'
+                  ? `❌ Cannot reach backend. Tried: ${API_BASES.join(' | ')}`
                   : '⏳ Loading model info…'}
               </div>
             ) : (
