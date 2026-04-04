@@ -8,14 +8,22 @@
 
 .visualize-main {
     align-items: flex-start;
-}
-
-.visualize-column {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 20px;
 }
 
+.visualize-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    align-items: stretch;
+}
+
+
+.visualize-panel-equal {
+    height: 100%;
+}
 
 
 .visualize-panel {
@@ -49,6 +57,10 @@
     color: #fde68a;
     border-color: rgba(245, 158, 11, 0.4);
     background: rgba(180, 83, 9, 0.25);
+}
+
+.visualize-model-select {
+    width: min(260px, 100%);
 }
 
 .visualize-placeholder {
@@ -229,6 +241,10 @@
 
 @media (max-width: 900px) {
     .visualize-main {
+        grid-template-columns: 1fr;
+    }
+
+    .visualize-summary-grid {
         grid-template-columns: 1fr;
     }
 

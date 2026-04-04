@@ -347,35 +347,35 @@ export default function Visualize() {
     return (
         <div className="app visualize-page">
             <main className="app-main visualize-main">
-                <div className="visualize-column">
-                    <section className="card visualize-panel">
-                        <div className="card-title">Model Result Visualizer</div>
-                        <p className="visualize-lead">
-                            Select a trained model to inspect its global training history and per-site evaluation summary.
-                        </p>
+                <section className="card visualize-panel">
+                    <div className="card-title">Model Result Visualizer</div>
+                    <p className="visualize-lead">
+                        Select a trained model to inspect its global training history and per-site evaluation summary.
+                    </p>
 
-                        <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label className="form-label" htmlFor="visualize-model-select">Model</label>
-                            <select
-                                id="visualize-model-select"
-                                className="form-select"
-                                value={selectedModel.key}
-                                onChange={event => setSelectedModelKey(event.target.value)}
-                            >
-                                {MODEL_VISUALIZE_CONFIG.map(model => (
-                                    <option key={model.key} value={model.key}>{model.label}</option>
-                                ))}
-                            </select>
-                        </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label className="form-label" htmlFor="visualize-model-select">Model</label>
+                        <select
+                            id="visualize-model-select"
+                            className="form-select visualize-model-select"
+                            value={selectedModel.key}
+                            onChange={event => setSelectedModelKey(event.target.value)}
+                        >
+                            {MODEL_VISUALIZE_CONFIG.map(model => (
+                                <option key={model.key} value={model.key}>{model.label}</option>
+                            ))}
+                        </select>
+                    </div>
 
-                        <div className="visualize-status-row">
-                            <span className="visualize-chip">Folder: {selectedModel.folder}</span>
-                            {loading ? <span className="visualize-chip loading">Loading files...</span> : null}
-                        </div>
-                        {error ? <div className="error-banner">⚠ {error}</div> : null}
-                    </section>
+                    <div className="visualize-status-row">
+                        <span className="visualize-chip">Folder: {selectedModel.folder}</span>
+                        {loading ? <span className="visualize-chip loading">Loading files...</span> : null}
+                    </div>
+                    {error ? <div className="error-banner">⚠ {error}</div> : null}
+                </section>
 
-                    <section className="card visualize-panel">
+                <div className="visualize-summary-grid">
+                    <section className="card visualize-panel visualize-panel-equal">
                         <div className="card-title">Training Summary</div>
                         {!trainingSummary ? (
                             <div className="visualize-placeholder">No history data available.</div>
@@ -493,10 +493,8 @@ export default function Visualize() {
                             </>
                         )}
                     </section>
-                </div>
 
-                <div className="visualize-column visualize-column-right">
-                    <section className="card visualize-panel">
+                    <section className="card visualize-panel visualize-panel-equal">
                         <div className="card-title">Per-Site Evaluation</div>
                         {!siteSummary ? (
                             <div className="visualize-placeholder">No per-site summary data available.</div>
@@ -604,8 +602,6 @@ export default function Visualize() {
                             </>
                         )}
                     </section>
-
-
                 </div>
             </main>
         </div>

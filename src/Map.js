@@ -24,7 +24,9 @@ import {
 } from "./utils/mapRoutingUtils";
 import "./styles/Map.css";
 
-const API_PREDICT = "http://127.0.0.1:5000/predict";
+const API_BASES = ["http://127.0.0.1:5000", "http://localhost:5000"];
+const API_PREDICT_PATH = "/predict";
+const API_HEALTH_PATH = "/health";
 const MODEL_OPTIONS = [
     { value: "CNN-LSTM", label: "CNN-LSTM" },
     { value: "GRU", label: "GRU" },
@@ -37,6 +39,7 @@ const FLOW_FETCH_CONCURRENCY = 18;
 const PATH_COLORS = ["#ef4444", "#0ea5e9", "#f59e0b", "#22c55e", "#8b5cf6"];
 const DEFAULT_CENTER = [-37.8136, 144.9631];
 const DEFAULT_ZOOM = 12;
+const FOCUS_ZOOM = 15;
 
 // giả định capacity
 // const FLOW_CAPACITY = 1800;
@@ -48,6 +51,7 @@ export default function MapPage() {
     const [originInput, setOriginInput] = useState("");
     const [destinationInput, setDestinationInput] = useState("");
     const [selectedModel, setSelectedModel] = useState("CNN-LSTM");
+    const [isControlPanelOpen, setIsControlPanelOpen] = useState(true);
     const [originOpen, setOriginOpen] = useState(false);
     const [destinationOpen, setDestinationOpen] = useState(false);
     const [paths, setPaths] = useState([]);
@@ -57,6 +61,23 @@ export default function MapPage() {
     const mapRef = useRef(null);
     const flowCacheRef = useRef(new Map());
     const backendWarningLoggedRef = useRef(false);
+
+    const checkBackendHealth = async () => {
+        for (const baseUrl of API_BASES) {
+            try {
+                const response = await fetch(`${baseUrl}${API_HEALTH_PATH}`, { method: "GET" });
+                if (response.ok) {
+                    setBackendDisconnected(false);
+                    return true;
+                }
+            } catch {
+                // Try next candidate host.
+            }
+        }
+
+        setBackendDisconnected(true);
+        return false;
+    };
 
     useEffect(() => {
         fetch("/mapInfo/Traffic_Count_Locations_FILTERED.csv")
@@ -92,6 +113,13 @@ export default function MapPage() {
         setPathDetails([]);
     }, [selectedModel]);
 
+    useEffect(() => {
+        checkBackendHealth();
+        const intervalId = setInterval(checkBackendHealth, 15000);
+
+        return () => clearInterval(intervalId);
+    }, []);
+
     const getFlow = async (nodeId) => {
         if (flowCacheRef.current.has(nodeId)) {
             return flowCacheRef.current.get(nodeId);
@@ -113,17 +141,32 @@ export default function MapPage() {
                 payload.site_id = scatsSiteId;
             }
 
-            const res = await fetch(API_PREDICT, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
+            let data = null;
+            let lastError = null;
+            for (const baseUrl of API_BASES) {
+                try {
+                    const res = await fetch(`${baseUrl}${API_PREDICT_PATH}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
 
-            if (!res.ok) {
-                throw new Error(`Predict API returned ${res.status}`);
+                    if (!res.ok) {
+                        lastError = new Error(`Predict API returned ${res.status}`);
+                        continue;
+                    }
+
+                    data = await res.json();
+                    break;
+                } catch (error) {
+                    lastError = error;
+                }
             }
 
-            const data = await res.json();
+            if (!data) {
+                throw lastError || new Error("Predict API is unreachable");
+            }
+
             const rawFlow = data?.predicted_flow_per_hour;
             const parsedFlow = typeof rawFlow === "number"
                 ? rawFlow
@@ -131,6 +174,7 @@ export default function MapPage() {
             const safeValue = Number.isFinite(parsedFlow) ? parsedFlow : 1000;
 
             flowCacheRef.current.set(nodeId, safeValue);
+            setBackendDisconnected(false);
 
             return safeValue;
 
@@ -266,6 +310,25 @@ export default function MapPage() {
         return pathDetails[0].totalTime.toFixed(1);
     }, [pathDetails]);
 
+    useEffect(() => {
+        if (!mapRef.current) return;
+
+        let timeoutId;
+        const rafId = requestAnimationFrame(() => {
+            mapRef.current.invalidateSize();
+            timeoutId = setTimeout(() => {
+                if (mapRef.current) {
+                    mapRef.current.invalidateSize();
+                }
+            }, 180);
+        });
+
+        return () => {
+            cancelAnimationFrame(rafId);
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+    }, [isControlPanelOpen]);
+
     // Orchestrate the complete flow:
     // 1. Build graph with static cost
     // 2. Use Yen algorithm to get top 5 candidate paths
@@ -275,7 +338,16 @@ export default function MapPage() {
     const handleSolve = async () => {
         if (!origin || destinations.length === 0) return;
 
-        setBackendDisconnected(false);
+        const backendAvailable = await checkBackendHealth();
+        if (!backendAvailable) {
+            const continueWithoutModel = window.confirm(
+                "Backend is not connected. Continue with Yen-only routing (without model prediction)?"
+            );
+            if (!continueWithoutModel) {
+                return;
+            }
+        }
+
         backendWarningLoggedRef.current = false;
         setLoading(true);
         setPaths([]);
@@ -313,7 +385,6 @@ export default function MapPage() {
                 5
             );
 
-            console.log("========== CANDIDATE PATHS ==========");
             console.log(candidatePaths);
 
             if (!candidatePaths || candidatePaths.length === 0) {
@@ -401,7 +472,6 @@ export default function MapPage() {
                 }
             );
 
-            console.log("========== FINAL PATH DETAILS ==========");
             recalculatedPaths.forEach((pd, idx) => {
                 console.group(`Final Path ${idx + 1}`);
                 console.log("Path:", pd.path);
@@ -415,16 +485,24 @@ export default function MapPage() {
             setPathDetails(recalculatedPaths);
 
         } catch (error) {
-            console.error("========== ROUTE ERROR ==========");
             console.error(error);
             alert("Error calculating paths");
         } finally {
-            console.log("========== ROUTE SOLVE END ==========");
+            console.log("End");
             setLoading(false);
         }
     };
 
     const handleNodeClick = (siteId) => {
+        const focusSite = rawSiteById.get(siteId);
+        if (focusSite && mapRef.current) {
+            mapRef.current.flyTo(
+                [focusSite.lat, focusSite.lng],
+                Math.max(mapRef.current.getZoom(), FOCUS_ZOOM),
+                { duration: 0.6 }
+            );
+        }
+
         if (!origin) {
             setOrigin(siteId);
             setOriginInput(String(siteId));
@@ -465,6 +543,13 @@ export default function MapPage() {
         const resolved = resolveFromInput(value, destinations[0]);
         if (resolved) {
             setOrigin(resolved.id);
+            if (mapRef.current) {
+                mapRef.current.flyTo(
+                    [resolved.lat, resolved.lng],
+                    Math.max(mapRef.current.getZoom(), FOCUS_ZOOM),
+                    { duration: 0.6 }
+                );
+            }
         } else {
             setOrigin(null);
         }
@@ -483,14 +568,38 @@ export default function MapPage() {
         const resolved = resolveFromInput(value, origin);
         if (resolved) {
             setDestinations([resolved.id]);
+            if (mapRef.current) {
+                mapRef.current.flyTo(
+                    [resolved.lat, resolved.lng],
+                    Math.max(mapRef.current.getZoom(), FOCUS_ZOOM),
+                    { duration: 0.6 }
+                );
+            }
         } else {
             setDestinations([]);
         }
     };
 
     return (
-        <div className="map-page">
-            <section className="map-controls">
+        <div className={`map-page ${isControlPanelOpen ? "" : "panel-collapsed"}`}>
+            {isControlPanelOpen && (
+                <section className="map-controls">
+                    <div className="map-controls-header">
+                        <div className="map-controls-title-wrap">
+                            <h3 className="map-controls-title">Route Planner</h3>
+                            <p className="map-controls-subtitle">Choose O/D and model</p>
+                        </div>
+                        <button
+                            type="button"
+                            className="map-panel-toggle"
+                            onClick={() => setIsControlPanelOpen(false)}
+                            aria-label="Hide controls"
+                            title="Hide controls"
+                        >
+                            Hide
+                        </button>
+                    </div>
+
                 <div className="map-controls-grid">
                     <div>
                         <label className="map-label" htmlFor="origin-input">
@@ -520,6 +629,13 @@ export default function MapPage() {
                                                 setPaths([]);
                                                 setPathDetails([]);
                                                 setOriginOpen(false);
+                                                if (mapRef.current) {
+                                                    mapRef.current.flyTo(
+                                                        [site.lat, site.lng],
+                                                        Math.max(mapRef.current.getZoom(), FOCUS_ZOOM),
+                                                        { duration: 0.6 }
+                                                    );
+                                                }
                                             }}
                                         >
                                             <span className="map-suggest-id">{site.id}</span>
@@ -559,6 +675,13 @@ export default function MapPage() {
                                                 setPaths([]);
                                                 setPathDetails([]);
                                                 setDestinationOpen(false);
+                                                if (mapRef.current) {
+                                                    mapRef.current.flyTo(
+                                                        [site.lat, site.lng],
+                                                        Math.max(mapRef.current.getZoom(), FOCUS_ZOOM),
+                                                        { duration: 0.6 }
+                                                    );
+                                                }
                                             }}
                                         >
                                             <span className="map-suggest-id">{site.id}</span>
@@ -572,7 +695,10 @@ export default function MapPage() {
 
                     <div>
                         <label className="map-label" htmlFor="model-select">
-                            Model {selectedModel && <span className="map-ok">active</span>}
+                            Model
+                            <span className={`map-ok ${backendDisconnected ? "is-offline" : "is-online"}`}>
+                                {backendDisconnected ? "offline" : "online"}
+                            </span>
                         </label>
                         <select
                             className="map-select"
@@ -596,11 +722,6 @@ export default function MapPage() {
                                 ? `Ready to find routes from ${origin} to ${destinations[0]}`
                                 : "Select both origin and destination"}
                         </p>
-                        {backendDisconnected && (
-                            <p className="map-warning" role="alert">
-                                Backend is not connected, the result is just based on search algorithm without traffic flow predicted.
-                            </p>
-                        )}
                     </div>
 
                     <div className="map-action-buttons">
@@ -621,7 +742,8 @@ export default function MapPage() {
                         </button>
                     </div>
                 </div>
-            </section>
+                </section>
+            )}
 
             <section className="map-canvas-wrap">
                 <div className="map-summary">
@@ -636,6 +758,17 @@ export default function MapPage() {
                             Best route (est): <b>{selectedPathDuration ? formatTravelTime(parseFloat(selectedPathDuration)) : "-"}</b>
                         </span>
                     </div>
+                    {!isControlPanelOpen && (
+                        <button
+                            type="button"
+                            className="map-panel-toggle map-panel-toggle-inline"
+                            onClick={() => setIsControlPanelOpen(true)}
+                            aria-label="Open controls"
+                            title="Open controls"
+                        >
+                            Open panel
+                        </button>
+                    )}
                     {pathDetails.length > 0 && (
                         <div className="path-times-summary">
                             <div className="path-times-header">Route Times (sorted):</div>

@@ -6,7 +6,7 @@ This guide explains how to deploy the trained model in the Flask backend and how
 
 The backend in backend/app.py loads:
 
-- Model file: model/tbrgs_cnn_lstm_site_4057.keras
+- Model file: One of the trained global models (CNN-LSTM, GRU, LSTM, or LSTM-GRU)
 - A MinMax scaler fitted from the SCATS dataset (if available)
 
 Then it exposes three endpoints:
@@ -47,7 +47,9 @@ Example valid payload:
   "num_intersections": 2
 }
 
-## 3) Environment Setup (Windows PowerShell)
+## 3) Environment Setup
+
+### Windows (PowerShell)
 
 From project root:
 
@@ -57,7 +59,7 @@ From project root:
 
 2. Activate virtual environment
 
-    .\.venv\Scripts\Activate.ps1
+    .\.\.venv\\Scripts\\Activate.ps1
 
 3. Install backend dependencies
 
@@ -65,42 +67,62 @@ From project root:
 
 If script execution is blocked, run PowerShell as admin once:
 
-Set-ExecutionPolicy RemoteSigned
+    Set-ExecutionPolicy RemoteSigned
 
-## 4) Confirm Model Placement
-
-Ensure the model file exists at:
-
-model/tbrgs_cnn_lstm_site_4057.keras
-
-If you trained/exported with another name, either:
-
-- Rename/copy it to this filename, or
-- Update MODEL_PATH in backend/app.py
-
-## 5) Optional Dataset For Better Scaling
-
-At startup, app.py tries to load:
-
-../ASM2B/Dataset/Scats Data October 2006.xls
-
-Behavior:
-
-- If file exists and loads, scaler is fit from real site data
-- If missing/unreadable, backend falls back to approximate scaler range [0, 1800]
-
-The server still runs with fallback scaling, but real dataset scaling is preferred.
-
-## 6) Start The Backend
+### macOS / Linux (Bash/Zsh)
 
 From project root:
 
-python backend/app.py
+1. Create virtual environment
+
+    python3 -m venv .venv
+
+2. Activate virtual environment
+
+    source .venv/bin/activate
+
+3. Install backend dependencies
+
+    pip install -r backend/requirements.txt
+
+## 4) Confirm Model Placement
+
+Ensure at least one model file exists in the model/ directory:
+
+- model/tbrgs_cnn_lstm_global_best.keras (CNN-LSTM) — default at startup
+- model/tbrgs_gru_global_best.keras (GRU)
+- model/tbrgs_lstm_global_best.keras (LSTM)
+- model/tbrgs_lstm_gru_global_best.keras (LSTM-GRU)
+
+The backend loads CNN-LSTM by default, but you can switch models via the /model-info endpoint or frontend selector.
+
+## 5) Optional Dataset For Better Scaling
+
+At startup, app.py tries to load the SCATS dataset from:
+
+public/mapInfo/VSDATA_202603_Summed.csv
+
+Behavior:
+
+- If file exists and loads, a global scaler and site-specific scalers are fit from real traffic data
+- If missing/unreadable, backend falls back to approximate scaler range [0, 1800]
+
+The server still runs with fallback scaling, but real dataset scaling is strongly recommended for better prediction accuracy.
+
+## 6) Start The Backend
+
+From project root (with venv activated):
+
+### Windows
+    python backend/app.py
+
+### macOS / Linux
+    python3 backend/app.py
 
 Expected startup output includes:
 
 - Model loaded path and input shape
-- Scaler status
+- Scaler status and number of sites
 - Server URL: http://localhost:5000
 
 ## 7) Verify The Service
@@ -145,18 +167,20 @@ Typical response fields:
 
 The React app already points to:
 
-http://localhost:5000
+http://localhost:5000 and http://localhost:5000 (with fallback to localhost:5000)
 
-Run frontend from project root in a second terminal:
+Run frontend from project root in a second terminal (without venv, or in a separate shell):
 
-npm install
-npm install react-leaflet leaflet papaparse react-router-dom recharts
-npm start
+    npm install
+    npm start
 
-Then open http://localhost:3000 and use:
+Then open http://localhost:3000 and:
 
-- Sample Data button for a quick demo
-- Predict button after filling all 12 flow inputs
+- Navigate to the Map page
+- Select Origin and Destination traffic count locations
+- Choose a model (CNN-LSTM, GRU, LSTM, LSTM-GRU)
+- Click "Find Top 5 Paths" to get route options with traffic predictions
+- View the Visualize page to inspect model training history and per-site evaluation metrics
 
 ## 10) Troubleshooting
 
@@ -193,8 +217,31 @@ Slow first request:
 
 ## 12) Minimal End-To-End Run Order
 
-1. Start backend: python backend/app.py
-2. Validate health: GET /health
-3. Start frontend: npm start
-4. Enter 12 flow values and context
-5. Click Predict and inspect returned traffic metrics
+### Terminal 1 (Backend)
+
+1. Activate venv:
+   - Windows: `.\.\.venv\\Scripts\\Activate.ps1`
+   - macOS/Linux: `source .venv/bin/activate`
+
+2. Start backend:
+   - `python backend/app.py` (Windows) or `python3 backend/app.py` (macOS/Linux)
+
+3. Verify health:
+   - Open http://127.0.0.1:5000/health in browser or terminal:
+     - Windows: `Invoke-RestMethod -Uri "http://127.0.0.1:5000/health" -Method Get`
+     - macOS/Linux: `curl http://127.0.0.1:5000/health`
+
+### Terminal 2 (Frontend)
+
+1. From project root (no venv needed):
+
+    npm start
+
+2. Open http://localhost:3000 in browser
+
+3. Use the Map page to:
+   - Select Origin and Destination locations
+   - Choose model
+   - Click "Find Top 5 Paths"
+
+4. Check the Visualize page for model performance metrics
