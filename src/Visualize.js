@@ -309,7 +309,7 @@ export default function Visualize() {
         return siteRows
             .filter(row => Number.isFinite(row.r2) && row.site !== null && row.site !== undefined && row.site !== "")
             .sort((a, b) => b.r2 - a.r2)
-            .slice(0, 20)
+            .slice(0, 10)
             .map(row => ({
                 site: String(row.site),
                 rmse: row.rmse,
@@ -495,7 +495,7 @@ export default function Visualize() {
                     </section>
                 </div>
 
-                <div className="visualize-column visualize-column-right">       
+                <div className="visualize-column visualize-column-right">
                     <section className="card visualize-panel">
                         <div className="card-title">Per-Site Evaluation</div>
                         {!siteSummary ? (
@@ -524,7 +524,6 @@ export default function Visualize() {
                             </>
                         )}
 
-                        {/* <div className="card-title"></div> */}
                         {topSitesByR2.length === 0 ? (
                             <div className="visualize-placeholder">No valid R2 values available for top-site comparison.</div>
                         ) : (
@@ -533,7 +532,7 @@ export default function Visualize() {
                                     <div>
                                         <p className="visualize-history-title">Interactive Per-Site Metric Chart</p>
                                         <p className="visualize-history-subtitle">
-                                            Top 20 rows ranked by R2 across the selected model dataset.
+                                            Top 10 rows ranked by R2 across the selected model dataset.
                                         </p>
                                     </div>
 
@@ -606,7 +605,7 @@ export default function Visualize() {
                         )}
                     </section>
 
-                    
+
                 </div>
             </main>
         </div>
