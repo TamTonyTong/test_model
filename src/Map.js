@@ -23,6 +23,7 @@ import {
     recalculatePathsWithPredictedFlows
 } from "./utils/mapRoutingUtils";
 import "./styles/Map.css";
+import Swal from 'sweetalert2';
 
 const RUNTIME_HOST = typeof window !== "undefined" ? window.location.hostname : "localhost";
 const RUNTIME_PROTOCOL = typeof window !== "undefined" && window.location.protocol === "https:"
@@ -408,7 +409,16 @@ export default function MapPage() {
             console.log(candidatePaths);
 
             if (!candidatePaths || candidatePaths.length === 0) {
-                alert("No path found");
+                Swal.fire({
+                    customClass: {
+                        confirmButton: 'my-confirm-btn',
+                    },
+                    buttonsStyling: false,
+                    title: 'No path found!',
+                    text: 'Let\'s search again with different origin/destination',
+                    icon: 'error',
+                    confirmButtonText: 'OK'
+                })
                 return;
             }
 
@@ -477,7 +487,16 @@ export default function MapPage() {
 
             if (filteredPaths.length === 0) {
                 console.error("All candidate paths were invalid.");
-                alert("No valid route found");
+                Swal.fire({
+                    customClass: {
+                        confirmButton: 'my-confirm-btn',
+                    },
+                    buttonsStyling: false,
+                    title: 'No valid route found!',
+                    text: 'Let\'s search again with different route',
+                    icon: 'error',
+                    confirmButtonText: 'OK'
+                });
                 return;
             }
 
@@ -506,8 +525,16 @@ export default function MapPage() {
 
         } catch (error) {
             console.error(error);
-            alert("Error calculating paths");
-        } finally {
+            Swal.fire({
+                customClass: {
+                        confirmButton: 'my-confirm-btn',
+                    },
+                buttonsStyling: false,
+                title: 'Error calculating paths!',
+                text: 'Let\'s calculate again with different path',
+                icon: 'error',
+                confirmButtonText: 'OK'
+            })        } finally {
             console.log("End");
             setLoading(false);
         }

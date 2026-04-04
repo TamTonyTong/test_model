@@ -496,6 +496,23 @@
   text-align: right;
 }
 
+.my-confirm-btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 15px 20px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  color: #ffffff;
+  background: linear-gradient(135deg, #0891b2, #2563eb);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.3);
+}
+
+.my-confirm-btn:hover {
+  background-color: #e04e2a;
+}
+
 @media (max-width: 900px) {
   .map-page {
     padding: 12px;
